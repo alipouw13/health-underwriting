@@ -1,0 +1,31 @@
+[project]
+name = "underwriting-assistant"
+version = "0.3.0"
+description = "Customer-agnostic underwriting application using Azure Content Understanding prebuilt-documentSearch + Azure OpenAI, with FastAPI backend and Next.js frontend."
+requires-python = ">=3.10"
+dependencies = [
+    "requests>=2.32.0",
+    "python-dotenv>=1.0.1",
+    "azure-identity>=1.19.0",
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "python-multipart>=0.0.12",
+]
+
+[project.optional-dependencies]
+dev = [
+    "black",
+    "ruff",
+    "pytest>=7.4.0",
+]
+
+[project.scripts]
+api-server = "api_server:main"
+
+[tool.black]
+line-length = 100
+target-version = ['py310']
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
