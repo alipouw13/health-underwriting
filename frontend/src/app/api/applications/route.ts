@@ -2,9 +2,16 @@ import { NextRequest, NextResponse } from 'next/server';
 
 const API_BASE_URL = process.env.API_URL || 'http://localhost:8000';
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/applications`, {
+    // Forward query parameters to backend
+    const searchParams = request.nextUrl.searchParams;
+    const queryString = searchParams.toString();
+    const url = queryString 
+      ? `${API_BASE_URL}/api/applications?${queryString}`
+      : `${API_BASE_URL}/api/applications`;
+    
+    const response = await fetch(url, {
       headers: {
         'Content-Type': 'application/json',
       },

@@ -154,11 +154,19 @@ export default function AdminPage() {
     }
   }, [currentPersona]);
 
+  // Reload analyzer data when persona changes
   useEffect(() => {
-    if (activeTab === 'analyzer' && !analyzerStatus) {
+    if (activeTab === 'analyzer') {
+      setAnalyzerSchema(null); // Clear schema to trigger reload
+    }
+  }, [currentPersona]);
+
+  // Load analyzer data when tab becomes active or schema is cleared
+  useEffect(() => {
+    if (activeTab === 'analyzer' && (!analyzerSchema || !analyzerStatus)) {
       loadAnalyzerData();
     }
-  }, [activeTab, analyzerStatus, loadAnalyzerData]);
+  }, [activeTab, analyzerSchema, analyzerStatus, loadAnalyzerData]);
 
   // Update prompt text when selection changes
   useEffect(() => {
@@ -373,7 +381,8 @@ export default function AdminPage() {
     setAnalyzerSuccess(null);
     
     try {
-      const result = await createAnalyzer();
+      // Pass current persona to use persona-specific field schema
+      const result = await createAnalyzer(undefined, currentPersona);
       setAnalyzerSuccess(`Analyzer "${result.analyzer_id}" created successfully!`);
       await loadAnalyzerData();
       

@@ -23,6 +23,9 @@ logger = setup_logging()
 # Polling timeout in seconds for long-running operations
 POLL_TIMEOUT_SECONDS = 180
 
+# Cache for Azure AD credential to avoid recreating on every request
+_credential_cache: Optional[Any] = None
+
 
 class ContentUnderstandingError(Exception):
     pass
@@ -362,6 +365,7 @@ def extract_markdown_from_result(payload: Dict[str, Any]) -> Dict[str, Any]:
 
 def _get_auth_token_and_headers(settings: ContentUnderstandingSettings) -> tuple[Optional[str], Dict[str, str]]:
     """Get authentication token and headers for API calls."""
+    global _credential_cache
     token = None
     if settings.use_azure_ad:
         if not AZURE_IDENTITY_AVAILABLE:
@@ -369,8 +373,12 @@ def _get_auth_token_and_headers(settings: ContentUnderstandingSettings) -> tuple
                 "azure-identity package is required for Azure AD authentication. "
                 "Install it with: uv add azure-identity"
             )
-        credential = DefaultAzureCredential()
-        token = credential.get_token("https://cognitiveservices.azure.com/.default").token
+        # Cache the credential to avoid expensive re-initialization
+        if _credential_cache is None:
+            logger.info("Initializing Azure AD credential (first time only)")
+            _credential_cache = DefaultAzureCredential()
+        # Get token from cached credential (tokens are cached internally by azure-identity)
+        token = _credential_cache.get_token("https://cognitiveservices.azure.com/.default").token
     
     headers = _get_headers(subscription_key=settings.api_key, token=token)
     return token, headers
@@ -397,7 +405,7 @@ def get_analyzer(
     headers["Content-Type"] = "application/json"
     
     try:
-        resp = requests.get(url, params=params, headers=headers, timeout=30)
+        resp = requests.get(url, params=params, headers=headers, timeout=10)
         if resp.status_code == 404:
             return None
         _raise_for_status_with_detail(resp)
@@ -406,13 +414,17 @@ def get_analyzer(
         if "404" in str(e):
             return None
         raise
+    except (requests.exceptions.Timeout, requests.exceptions.ReadTimeout, requests.exceptions.ConnectTimeout) as e:
+        logger.warning("Timeout getting analyzer %s: %s", analyzer_id, e)
+        raise
 
 
 def create_or_update_custom_analyzer(
     settings: ContentUnderstandingSettings,
     analyzer_id: Optional[str] = None,
+    persona_id: Optional[str] = None,
     field_schema: Optional[Dict[str, Any]] = None,
-    description: str = "Custom analyzer for underwriting document extraction with confidence scores",
+    description: str = "Custom analyzer for document extraction with confidence scores",
     force_recreate: bool = True,
 ) -> Dict[str, Any]:
     """Create or update a custom analyzer with field schema for confidence scoring.
@@ -420,7 +432,8 @@ def create_or_update_custom_analyzer(
     Args:
         settings: Content Understanding settings
         analyzer_id: ID for the custom analyzer (defaults to settings.custom_analyzer_id)
-        field_schema: Field schema definition (defaults to UNDERWRITING_FIELD_SCHEMA)
+        persona_id: Persona ID to determine field schema (e.g., 'underwriting', 'life_health_claims')
+        field_schema: Field schema definition (overrides persona_id if provided)
         description: Description of the analyzer
         force_recreate: If True, delete existing analyzer and recreate (default True)
     
@@ -433,7 +446,14 @@ def create_or_update_custom_analyzer(
         )
     
     analyzer_id = analyzer_id or settings.custom_analyzer_id
-    field_schema = field_schema or UNDERWRITING_FIELD_SCHEMA
+    
+    # Determine field schema: explicit > persona-based > default underwriting
+    if field_schema is None:
+        if persona_id:
+            from app.personas import get_field_schema
+            field_schema = get_field_schema(persona_id)
+        else:
+            field_schema = UNDERWRITING_FIELD_SCHEMA
     
     endpoint = settings.endpoint.rstrip("/")
     url = f"{endpoint}/contentunderstanding/analyzers/{analyzer_id}"

@@ -433,7 +433,8 @@ async def create_prompt(section: str, subsection: str, request: PromptUpdateRequ
 class AnalyzerCreateRequest(BaseModel):
     """Request model for creating a custom analyzer."""
     analyzer_id: Optional[str] = None
-    description: Optional[str] = "Custom analyzer for underwriting document extraction"
+    persona: Optional[str] = None
+    description: Optional[str] = "Custom analyzer for document extraction"
 
 
 @app.get("/api/analyzer/status")
@@ -452,15 +453,15 @@ async def get_analyzer_status():
                 "confidence_scoring_enabled": settings.content_understanding.enable_confidence_scores,
                 "default_analyzer_id": settings.content_understanding.analyzer_id,
             }
-        except requests.exceptions.Timeout:
-            logger.warning("Timeout checking analyzer status for %s", custom_analyzer_id)
+        except (requests.exceptions.Timeout, requests.exceptions.ReadTimeout, requests.exceptions.ConnectTimeout) as timeout_err:
+            logger.warning("Timeout checking analyzer status for %s: %s", custom_analyzer_id, timeout_err)
             return {
                 "analyzer_id": custom_analyzer_id,
                 "exists": None,
                 "analyzer": None,
                 "confidence_scoring_enabled": settings.content_understanding.enable_confidence_scores,
                 "default_analyzer_id": settings.content_understanding.analyzer_id,
-                "error": "Connection timeout to Azure Content Understanding service",
+                "error": f"Request timeout ({timeout_err})",
             }
         except requests.exceptions.ConnectionError as conn_err:
             logger.warning("Connection error checking analyzer status: %s", conn_err)
@@ -500,11 +501,13 @@ async def create_custom_analyzer(request: AnalyzerCreateRequest = None):
     try:
         settings = load_settings()
         analyzer_id = request.analyzer_id if request and request.analyzer_id else settings.content_understanding.custom_analyzer_id
-        description = request.description if request and request.description else "Custom analyzer for underwriting document extraction with confidence scores"
+        persona_id = request.persona if request and request.persona else None
+        description = request.description if request and request.description else "Custom analyzer for document extraction with confidence scores"
         
         result = create_or_update_custom_analyzer(
             settings.content_understanding,
             analyzer_id=analyzer_id,
+            persona_id=persona_id,
             description=description,
         )
         
@@ -544,7 +547,6 @@ async def list_analyzers():
     """List available analyzers (custom and default)."""
     try:
         settings = load_settings()
-        custom_id = settings.content_understanding.custom_analyzer_id
         default_id = settings.content_understanding.analyzer_id
         
         analyzers = [
@@ -553,44 +555,69 @@ async def list_analyzers():
                 "type": "prebuilt",
                 "description": "Azure prebuilt document search analyzer",
                 "exists": True,  # Prebuilt analyzers always exist
+                "persona": None,
             },
         ]
         
-        # Try to check if custom analyzer exists, but handle connection failures gracefully
-        try:
-            custom_analyzer = get_analyzer(settings.content_understanding, custom_id)
-            if custom_analyzer:
-                analyzers.append({
-                    "id": custom_id,
-                    "type": "custom",
-                    "description": custom_analyzer.get("description", "Custom underwriting analyzer"),
-                    "exists": True,
-                })
-            else:
-                analyzers.append({
-                    "id": custom_id,
-                    "type": "custom",
-                    "description": "Custom underwriting analyzer (not created yet)",
-                    "exists": False,
-                })
-        except requests.exceptions.Timeout:
-            logger.warning("Timeout checking custom analyzer %s - Azure service unreachable", custom_id)
-            analyzers.append({
-                "id": custom_id,
-                "type": "custom",
-                "description": "Custom underwriting analyzer (status unknown - connection timeout)",
-                "exists": None,  # Unknown status
-                "error": "Connection timeout to Azure Content Understanding service",
-            })
-        except requests.exceptions.ConnectionError as conn_err:
-            logger.warning("Connection error checking custom analyzer %s: %s", custom_id, conn_err)
-            analyzers.append({
-                "id": custom_id,
-                "type": "custom",
-                "description": "Custom underwriting analyzer (status unknown - connection error)",
-                "exists": None,
-                "error": "Cannot connect to Azure Content Understanding service",
-            })
+        # Get all persona configurations
+        personas = list_personas()
+        
+        # Check each persona's custom analyzer
+        for persona in personas:
+            if not persona.get("enabled", True):
+                continue  # Skip disabled personas
+                
+            persona_id = persona["id"]
+            try:
+                persona_config = get_persona_config(persona_id)
+                custom_id = persona_config.custom_analyzer_id
+                
+                # Try to check if custom analyzer exists
+                try:
+                    custom_analyzer = get_analyzer(settings.content_understanding, custom_id)
+                    if custom_analyzer:
+                        analyzers.append({
+                            "id": custom_id,
+                            "type": "custom",
+                            "description": custom_analyzer.get("description", f"Custom {persona['name']} analyzer"),
+                            "exists": True,
+                            "persona": persona_id,
+                            "persona_name": persona["name"],
+                        })
+                    else:
+                        analyzers.append({
+                            "id": custom_id,
+                            "type": "custom",
+                            "description": f"Custom {persona['name']} analyzer (not created yet)",
+                            "exists": False,
+                            "persona": persona_id,
+                            "persona_name": persona["name"],
+                        })
+                except (requests.exceptions.Timeout, requests.exceptions.ReadTimeout, requests.exceptions.ConnectTimeout) as timeout_err:
+                    logger.warning("Timeout checking custom analyzer %s for persona %s: %s", custom_id, persona_id, timeout_err)
+                    analyzers.append({
+                        "id": custom_id,
+                        "type": "custom",
+                        "description": f"Custom {persona['name']} analyzer (status unknown - timeout)",
+                        "exists": None,
+                        "persona": persona_id,
+                        "persona_name": persona["name"],
+                        "error": f"Request timeout ({timeout_err})",
+                    })
+                except requests.exceptions.ConnectionError as conn_err:
+                    logger.warning("Connection error checking custom analyzer %s for persona %s: %s", custom_id, persona_id, conn_err)
+                    analyzers.append({
+                        "id": custom_id,
+                        "type": "custom",
+                        "description": f"Custom {persona['name']} analyzer (status unknown - connection error)",
+                        "exists": None,
+                        "persona": persona_id,
+                        "persona_name": persona["name"],
+                        "error": "Cannot connect to Azure Content Understanding service",
+                    })
+            except Exception as e:
+                logger.warning("Error processing persona %s: %s", persona_id, e)
+                continue
         
         return {"analyzers": analyzers}
     except Exception as e:

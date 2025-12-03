@@ -15,8 +15,11 @@ from typing import Dict, List, Optional, Any
 class PersonaType(str, Enum):
     """Available persona types in WorkbenchIQ."""
     UNDERWRITING = "underwriting"
-    CLAIMS = "claims"
+    LIFE_HEALTH_CLAIMS = "life_health_claims"
+    PROPERTY_CASUALTY_CLAIMS = "property_casualty_claims"
     MORTGAGE = "mortgage"
+    # Legacy alias for backward compatibility
+    CLAIMS = "claims"  # Maps to life_health_claims
 
 
 @dataclass
@@ -727,34 +730,74 @@ Return STRICT JSON:
 
 
 # =============================================================================
-# CLAIMS PERSONA CONFIGURATION (Mock/Placeholder)
+# LIFE & HEALTH CLAIMS PERSONA CONFIGURATION
 # =============================================================================
 
-CLAIMS_FIELD_SCHEMA = {
-    "name": "ClaimsFields",
+LIFE_HEALTH_CLAIMS_FIELD_SCHEMA = {
+    "name": "LifeHealthClaimsFields",
     "fields": {
-        # ===== Claimant Information =====
-        "ClaimantName": {
+        # ===== Member/Claimant Information =====
+        "MemberName": {
             "type": "string",
-            "description": "Full name of the claimant or insured party filing the claim.",
+            "description": "Full name of the insured member or patient filing the claim.",
             "method": "extract",
             "estimateSourceAndConfidence": True
         },
+        "MemberID": {
+            "type": "string",
+            "description": "Member ID or subscriber ID for the insurance plan.",
+            "method": "extract",
+            "estimateSourceAndConfidence": True
+        },
+        "DateOfBirth": {
+            "type": "date",
+            "description": "Member's date of birth.",
+            "method": "extract",
+            "estimateSourceAndConfidence": True
+        },
+        "Gender": {
+            "type": "string",
+            "description": "Member's gender (Male, Female, Other).",
+            "method": "extract",
+            "estimateSourceAndConfidence": True
+        },
+        
+        # ===== Policy Information =====
         "PolicyNumber": {
             "type": "string",
-            "description": "Insurance policy number associated with the claim.",
+            "description": "Insurance policy number or group number.",
             "method": "extract",
             "estimateSourceAndConfidence": True
         },
+        "PlanName": {
+            "type": "string",
+            "description": "Name of the insurance plan (e.g., HMO Gold Plan, PPO Silver).",
+            "method": "extract",
+            "estimateSourceAndConfidence": True
+        },
+        "CoverageDates": {
+            "type": "string",
+            "description": "Coverage effective dates (start and end date).",
+            "method": "extract",
+            "estimateSourceAndConfidence": True
+        },
+        "GroupNumber": {
+            "type": "string",
+            "description": "Employer or group number for group insurance.",
+            "method": "extract",
+            "estimateSourceAndConfidence": True
+        },
+        
+        # ===== Claim Information =====
         "ClaimNumber": {
             "type": "string",
-            "description": "Unique claim reference number assigned to this claim.",
+            "description": "Unique claim reference number.",
             "method": "extract",
             "estimateSourceAndConfidence": True
         },
-        "DateOfLoss": {
+        "DateOfService": {
             "type": "date",
-            "description": "Date when the incident or loss occurred.",
+            "description": "Date when the medical service was provided.",
             "method": "extract",
             "estimateSourceAndConfidence": True
         },
@@ -764,170 +807,1231 @@ CLAIMS_FIELD_SCHEMA = {
             "method": "extract",
             "estimateSourceAndConfidence": True
         },
+        "ClaimStatus": {
+            "type": "string",
+            "description": "Current status of the claim (Pending, Under Review, Approved, Denied).",
+            "method": "extract",
+            "estimateSourceAndConfidence": True
+        },
         
-        # ===== Medical Information =====
-        "DiagnosisCodes": {
+        # ===== Provider Information =====
+        "ProviderName": {
+            "type": "string",
+            "description": "Name of the healthcare provider or physician.",
+            "method": "extract",
+            "estimateSourceAndConfidence": True
+        },
+        "ProviderSpecialty": {
+            "type": "string",
+            "description": "Medical specialty of the provider (e.g., Cardiology, Orthopedics).",
+            "method": "extract",
+            "estimateSourceAndConfidence": True
+        },
+        "ProviderNPI": {
+            "type": "string",
+            "description": "National Provider Identifier (NPI) number.",
+            "method": "extract",
+            "estimateSourceAndConfidence": True
+        },
+        "FacilityName": {
+            "type": "string",
+            "description": "Name of the hospital or medical facility.",
+            "method": "extract",
+            "estimateSourceAndConfidence": True
+        },
+        "FacilityType": {
+            "type": "string",
+            "description": "Type of facility (Hospital, Clinic, Urgent Care, etc.).",
+            "method": "extract",
+            "estimateSourceAndConfidence": True
+        },
+        
+        # ===== Clinical Information =====
+        "PrimaryDiagnosis": {
+            "type": "object",
+            "description": "Primary diagnosis with ICD-10 code.",
+            "properties": {
+                "code": {"type": "string", "description": "ICD-10 diagnosis code"},
+                "description": {"type": "string", "description": "Diagnosis description"}
+            },
+            "method": "extract",
+            "estimateSourceAndConfidence": True
+        },
+        "SecondaryDiagnoses": {
             "type": "array",
-            "description": "ICD-10 or other diagnosis codes from medical records.",
+            "description": "Secondary and additional diagnosis codes.",
             "items": {
                 "type": "object",
                 "properties": {
                     "code": {"type": "string", "description": "ICD-10 code"},
-                    "description": {"type": "string", "description": "Description of diagnosis"}
+                    "description": {"type": "string", "description": "Diagnosis description"}
                 }
             },
             "method": "extract",
             "estimateSourceAndConfidence": True
         },
-        "TreatingPhysician": {
-            "type": "string",
-            "description": "Name and credentials of the treating physician.",
+        "ProcedureCodes": {
+            "type": "array",
+            "description": "CPT/HCPCS procedure codes billed.",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "code": {"type": "string", "description": "CPT or HCPCS code"},
+                    "description": {"type": "string", "description": "Procedure description"},
+                    "units": {"type": "number", "description": "Number of units"},
+                    "modifier": {"type": "string", "description": "Modifier if applicable"}
+                }
+            },
             "method": "extract",
             "estimateSourceAndConfidence": True
         },
-        "HospitalName": {
+        "ReasonForVisit": {
             "type": "string",
-            "description": "Name of hospital or medical facility where treatment was provided.",
+            "description": "Chief complaint or reason for the medical visit.",
             "method": "extract",
             "estimateSourceAndConfidence": True
         },
         "AdmissionDate": {
             "type": "date",
-            "description": "Date of hospital admission if applicable.",
+            "description": "Hospital admission date if applicable.",
             "method": "extract",
             "estimateSourceAndConfidence": True
         },
         "DischargeDate": {
             "type": "date",
-            "description": "Date of hospital discharge if applicable.",
+            "description": "Hospital discharge date if applicable.",
             "method": "extract",
             "estimateSourceAndConfidence": True
         },
-        "ProceduresConducted": {
+        "LengthOfStay": {
+            "type": "number",
+            "description": "Number of days in hospital.",
+            "method": "extract",
+            "estimateSourceAndConfidence": True
+        },
+        
+        # ===== Financial Information =====
+        "BilledAmount": {
+            "type": "string",
+            "description": "Total amount billed by the provider.",
+            "method": "extract",
+            "estimateSourceAndConfidence": True
+        },
+        "AllowedAmount": {
+            "type": "string",
+            "description": "Amount allowed by the insurance plan.",
+            "method": "extract",
+            "estimateSourceAndConfidence": True
+        },
+        "PlanLiability": {
+            "type": "string",
+            "description": "Amount the insurance plan is responsible for.",
+            "method": "extract",
+            "estimateSourceAndConfidence": True
+        },
+        "MemberOOP": {
+            "type": "string",
+            "description": "Member out-of-pocket responsibility (copay, coinsurance, deductible).",
+            "method": "extract",
+            "estimateSourceAndConfidence": True
+        },
+        "Copay": {
+            "type": "string",
+            "description": "Copay amount if applicable.",
+            "method": "extract",
+            "estimateSourceAndConfidence": True
+        },
+        "Deductible": {
+            "type": "string",
+            "description": "Deductible amount applied.",
+            "method": "extract",
+            "estimateSourceAndConfidence": True
+        },
+        "Coinsurance": {
+            "type": "string",
+            "description": "Coinsurance percentage or amount.",
+            "method": "extract",
+            "estimateSourceAndConfidence": True
+        },
+        
+        # ===== Benefits & Limits =====
+        "EligibilityStatus": {
+            "type": "string",
+            "description": "Member eligibility status at time of service.",
+            "method": "extract",
+            "estimateSourceAndConfidence": True
+        },
+        "BenefitLimits": {
             "type": "array",
-            "description": "List of medical procedures performed.",
+            "description": "Applicable benefit limits and remaining amounts.",
             "items": {
                 "type": "object",
                 "properties": {
-                    "procedure": {"type": "string", "description": "Procedure name or CPT code"},
-                    "date": {"type": "string", "description": "Date of procedure"},
-                    "outcome": {"type": "string", "description": "Outcome or result"}
+                    "benefit_type": {"type": "string", "description": "Type of benefit"},
+                    "limit": {"type": "string", "description": "Maximum benefit amount"},
+                    "used": {"type": "string", "description": "Amount already used"},
+                    "remaining": {"type": "string", "description": "Remaining benefit"}
                 }
             },
             "method": "extract",
             "estimateSourceAndConfidence": True
         },
-        
-        # ===== Claim Details =====
-        "ClaimType": {
-            "type": "string",
-            "description": "Type of claim (e.g., Medical, Disability, Life, Critical Illness).",
-            "method": "extract",
-            "estimateSourceAndConfidence": True
-        },
-        "ClaimAmount": {
-            "type": "string",
-            "description": "Total amount claimed with currency.",
-            "method": "extract",
-            "estimateSourceAndConfidence": True
-        },
-        "ClaimStatus": {
-            "type": "string",
-            "description": "Current status of the claim (Pending, Approved, Denied, Under Review).",
+        "Exclusions": {
+            "type": "array",
+            "description": "Policy exclusions that may apply.",
+            "items": {
+                "type": "string",
+                "description": "Exclusion description"
+            },
             "method": "extract",
             "estimateSourceAndConfidence": True
         },
         "PreExistingConditions": {
             "type": "string",
-            "description": "Any pre-existing conditions that may affect the claim.",
+            "description": "Pre-existing conditions and their impact on coverage.",
             "method": "extract",
             "estimateSourceAndConfidence": True
         },
-        "CauseOfClaim": {
+        
+        # ===== Prior Authorization =====
+        "PriorAuthRequired": {
+            "type": "boolean",
+            "description": "Whether prior authorization was required.",
+            "method": "extract",
+            "estimateSourceAndConfidence": True
+        },
+        "PriorAuthNumber": {
             "type": "string",
-            "description": "Primary cause or reason for the claim.",
+            "description": "Prior authorization reference number if obtained.",
+            "method": "extract",
+            "estimateSourceAndConfidence": True
+        },
+        "PriorAuthStatus": {
+            "type": "string",
+            "description": "Status of prior authorization (Approved, Denied, Pending).",
             "method": "extract",
             "estimateSourceAndConfidence": True
         }
     }
 }
 
-CLAIMS_DEFAULT_PROMPTS = {
-    "claim_summary": {
-        "claim_overview": """
-You are an expert insurance claims processor.
+LIFE_HEALTH_CLAIMS_DEFAULT_PROMPTS = {
+    "clinical_case_notes": {
+        "reason_for_visit": """
+You are an expert health insurance claims adjuster reviewing a medical claim.
 
-Given the claim documents converted to Markdown, extract a comprehensive overview of the claim.
+From the claim documents in Markdown, analyze the REASON FOR VISIT and chief complaint.
 
 Focus on:
-- Claimant information and policy details
-- Date of loss/incident and claim filing date
-- Type of claim and amount requested
-- Current claim status
-
-Return STRICT JSON with this exact shape:
-
-{
-  "summary": "2–4 sentence narrative of the claim.",
-  "key_fields": [
-    {"label": "Claim Type", "value": "Medical"},
-    {"label": "Claim Amount", "value": "$15,000"}
-  ],
-  "claim_status": "Pending | Under Review | Approved | Denied",
-  "processing_action": "Free text recommendation for next steps."
-}
-        """,
-        "medical_review": """
-You are an expert medical claims reviewer.
-
-From the claim documents, extract all relevant medical information.
-
-Capture:
-- Diagnosis codes and descriptions
-- Treating physicians and facilities
-- Procedures performed
-- Treatment timeline
+- Primary complaint or symptoms reported
+- Duration and severity of symptoms
+- Relevant history leading to the visit
+- Urgency level of the presentation
 
 Return STRICT JSON:
 
 {
-  "summary": "Clinical summary of the medical claim.",
-  "diagnoses": [
-    {"code": "ICD-10 code", "description": "Diagnosis description"}
+  "summary": "2-3 sentence overview of the reason for visit.",
+  "chief_complaint": "Primary complaint in patient's terms",
+  "symptom_duration": "How long symptoms were present",
+  "severity": "Mild | Moderate | Severe | Critical",
+  "urgency": "Routine | Urgent | Emergent",
+  "history_of_present_illness": "Brief HPI summary",
+  "processing_notes": "Any concerns or flags for claims processing"
+}
+        """,
+        "key_diagnoses": """
+You are an expert health insurance claims adjuster reviewing a medical claim.
+
+From the claim documents, extract and analyze all DIAGNOSES with their clinical context.
+
+Focus on:
+- Primary and secondary diagnosis codes (ICD-10)
+- Clinical justification for each diagnosis
+- Relationship between diagnoses
+- Consistency with documented symptoms
+
+Return STRICT JSON:
+
+{
+  "summary": "Overview of diagnostic picture.",
+  "primary_diagnosis": {
+    "code": "ICD-10 code",
+    "description": "Full description",
+    "clinical_support": "Evidence supporting this diagnosis"
+  },
+  "secondary_diagnoses": [
+    {
+      "code": "ICD-10 code",
+      "description": "Description",
+      "relationship_to_primary": "How it relates to primary diagnosis"
+    }
   ],
-  "treatments": [
-    {"procedure": "Procedure name", "date": "Date", "provider": "Provider name"}
+  "diagnosis_consistency": "Consistent | Inconsistent | Unclear",
+  "coding_accuracy": "Assessment of coding accuracy",
+  "processing_notes": "Flags or concerns for claims review"
+}
+        """,
+        "medical_necessity": """
+You are an expert health insurance medical reviewer assessing medical necessity.
+
+From the claim documents, evaluate the MEDICAL NECESSITY of the services provided.
+
+Consider:
+- Clinical appropriateness of treatments
+- Alignment with standard of care
+- Documentation supporting necessity
+- Alternative treatment options considered
+
+Return STRICT JSON:
+
+{
+  "summary": "Overall medical necessity assessment.",
+  "necessity_determination": "Medically Necessary | Partially Necessary | Not Necessary | Insufficient Documentation",
+  "clinical_rationale": "Explanation of the determination",
+  "services_reviewed": [
+    {
+      "service": "Service or procedure",
+      "code": "CPT/HCPCS code",
+      "necessity_status": "Necessary | Questionable | Not Necessary",
+      "rationale": "Specific rationale"
+    }
   ],
-  "medical_necessity": "Assessment of medical necessity",
-  "processing_action": "Recommendation for claim processing."
+  "documentation_quality": "Adequate | Inadequate | Missing",
+  "recommended_action": "Approve | Deny | Request Additional Info | Peer Review"
 }
         """
     },
-    "eligibility": {
-        "coverage_verification": """
-You are an expert insurance claims adjuster.
+    "clinical_timeline": {
+        "treatment_timeline": """
+You are an expert health insurance claims analyst reviewing treatment chronology.
 
-Review the claim documents and verify coverage eligibility.
+From the claim documents, construct a detailed CLINICAL TIMELINE of events.
 
-Check:
-- Policy effective dates vs date of loss
-- Coverage limits and deductibles
-- Pre-existing condition exclusions
-- Waiting periods
+Include:
+- All dates of service
+- Sequence of treatments and procedures
+- Provider encounters
+- Key clinical milestones
 
 Return STRICT JSON:
 
 {
-  "summary": "Coverage eligibility assessment.",
-  "coverage_status": "Eligible | Partially Eligible | Not Eligible",
-  "issues": [
-    {"type": "Issue type", "detail": "Description of issue"}
+  "summary": "Overview of treatment timeline.",
+  "timeline_events": [
+    {
+      "date": "YYYY-MM-DD or MM/DD format",
+      "event_type": "ER Visit | Office Visit | Procedure | Lab | Imaging | Hospitalization | Discharge",
+      "description": "What occurred",
+      "provider": "Provider name if known",
+      "tags": ["chest pain", "causal", "treatment"],
+      "significance": "Why this event matters for the claim"
+    }
   ],
-  "processing_action": "Recommended action."
+  "total_duration": "Duration from first to last event",
+  "treatment_pattern": "Appropriate | Concerning | Excessive | Insufficient",
+  "processing_notes": "Timeline concerns or patterns"
+}
+        """
+    },
+    "benefits_policy": {
+        "eligibility_verification": """
+You are an expert health insurance benefits specialist.
+
+From the claim documents, verify ELIGIBILITY AND ENROLLMENT status.
+
+Check:
+- Member enrollment status at date of service
+- Coverage effective dates
+- Plan type and benefits tier
+- Any coverage gaps or issues
+
+Return STRICT JSON:
+
+{
+  "summary": "Eligibility verification summary.",
+  "eligibility_status": "Eligible | Not Eligible | Partially Eligible",
+  "member_info": {
+    "name": "Member name",
+    "member_id": "ID number",
+    "group": "Group name/number"
+  },
+  "coverage_dates": {
+    "effective_date": "Start date",
+    "termination_date": "End date or Active"
+  },
+  "plan_details": {
+    "plan_name": "Plan name",
+    "plan_type": "HMO | PPO | EPO | POS | Other",
+    "network_status": "In-Network | Out-of-Network | Mixed"
+  },
+  "eligibility_issues": ["List any issues found"],
+  "processing_action": "Proceed | Hold | Deny - Not Eligible"
+}
+        """,
+        "benefit_limits": """
+You are an expert health insurance benefits analyst.
+
+From the claim documents, analyze BENEFIT LIMITS and their application.
+
+Review:
+- Annual/lifetime maximums
+- Service-specific limits
+- Remaining benefits
+- Accumulator status
+
+Return STRICT JSON:
+
+{
+  "summary": "Benefit limits analysis.",
+  "applicable_limits": [
+    {
+      "benefit_type": "Type of benefit",
+      "limit_amount": "Maximum allowed",
+      "amount_used": "Already utilized",
+      "amount_remaining": "Still available",
+      "status": "Within Limits | Approaching Limit | Exceeded"
+    }
+  ],
+  "deductible_status": {
+    "annual_deductible": "Amount",
+    "met_to_date": "Amount met",
+    "remaining": "Amount remaining"
+  },
+  "oop_maximum": {
+    "annual_max": "Amount",
+    "met_to_date": "Amount met",
+    "remaining": "Amount remaining"
+  },
+  "limit_concerns": ["Any concerns about limits"],
+  "processing_action": "Apply standard benefits | Apply limit | Review with member"
+}
+        """,
+        "exclusions_limitations": """
+You are an expert health insurance policy analyst.
+
+From the claim documents, identify any EXCLUSIONS OR LIMITATIONS that may apply.
+
+Check:
+- Policy exclusions
+- Pre-existing condition clauses
+- Waiting periods
+- Service limitations
+
+Return STRICT JSON:
+
+{
+  "summary": "Exclusions and limitations review.",
+  "applicable_exclusions": [
+    {
+      "exclusion_type": "Type of exclusion",
+      "description": "What is excluded",
+      "applies_to_claim": true,
+      "rationale": "Why it applies or doesn't"
+    }
+  ],
+  "pre_existing_review": {
+    "condition_identified": "Condition if any",
+    "lookback_period": "Time period reviewed",
+    "determination": "Applies | Does Not Apply | Under Review"
+  },
+  "waiting_periods": {
+    "applicable": true,
+    "period": "Duration if applicable",
+    "status": "Satisfied | Not Satisfied | N/A"
+  },
+  "processing_action": "No exclusions apply | Apply exclusion | Request records | Medical review needed"
+}
+        """
+    },
+    "claim_line_evaluation": {
+        "line_item_review": """
+You are an expert health insurance claims examiner reviewing claim lines.
+
+From the claim documents, evaluate each CLAIM LINE for processing.
+
+For each line item assess:
+- CPT/HCPCS code accuracy
+- Billed vs allowed amounts
+- Modifier appropriateness
+- Bundle/unbundle issues
+
+Return STRICT JSON:
+
+{
+  "summary": "Overall claim line evaluation.",
+  "total_billed": "Total billed amount",
+  "total_allowed": "Total allowed amount",
+  "total_plan_pays": "Plan liability",
+  "total_member_pays": "Member responsibility",
+  "claim_lines": [
+    {
+      "line_number": 1,
+      "code": "CPT/HCPCS code",
+      "description": "Service description",
+      "billed": "Billed amount",
+      "allowed": "Allowed amount",
+      "ai_opinion": "Approve | Deny | Review | Adjust",
+      "adjustment_reason": "Reason if adjusting",
+      "notes": "Processing notes"
+    }
+  ],
+  "coding_issues": ["Any coding concerns identified"],
+  "bundling_flags": ["Any bundling issues"],
+  "recommended_action": "Pay as submitted | Adjust and pay | Deny | Request documentation"
+}
+        """
+    },
+    "tasks_decisions": {
+        "final_decision": """
+You are an expert health insurance claims adjudicator making a final determination.
+
+Based on all claim information reviewed, provide a FINAL DECISION recommendation.
+
+Consider:
+- Medical necessity determination
+- Benefits and eligibility verification
+- Policy exclusions and limitations
+- Coding accuracy
+- Documentation completeness
+
+Return STRICT JSON:
+
+{
+  "summary": "Final decision summary.",
+  "decision": "Approve | Approve with Adjustment | Pend | Deny",
+  "decision_rationale": "Detailed explanation of the decision",
+  "payment_summary": {
+    "total_billed": "Amount billed",
+    "total_allowed": "Amount allowed",
+    "plan_pays": "Plan payment",
+    "member_pays": "Member responsibility",
+    "adjustment_amount": "Any adjustments"
+  },
+  "denial_reasons": ["If denying, list specific reasons"],
+  "pend_reasons": ["If pending, what additional info needed"],
+  "appeal_rights": "Standard appeal rights notice",
+  "next_steps": ["Required follow-up actions"],
+  "reviewer_notes": "Additional notes for the claims processor"
 }
         """
     }
 }
+
+
+# =============================================================================
+# PROPERTY & CASUALTY CLAIMS PERSONA CONFIGURATION
+# =============================================================================
+
+PROPERTY_CASUALTY_CLAIMS_FIELD_SCHEMA = {
+    "name": "PropertyCasualtyClaimsFields",
+    "fields": {
+        # ===== Claim Identification =====
+        "ClaimNumber": {
+            "type": "string",
+            "description": "Unique claim reference number.",
+            "method": "extract",
+            "estimateSourceAndConfidence": True
+        },
+        "PolicyNumber": {
+            "type": "string",
+            "description": "Insurance policy number.",
+            "method": "extract",
+            "estimateSourceAndConfidence": True
+        },
+        "LineOfBusiness": {
+            "type": "string",
+            "description": "Line of business (Auto BI, Auto PD, GL, Property, WC, etc.).",
+            "method": "extract",
+            "estimateSourceAndConfidence": True
+        },
+        "ClaimStatus": {
+            "type": "string",
+            "description": "Current claim status (Open, Closed, Litigation, etc.).",
+            "method": "extract",
+            "estimateSourceAndConfidence": True
+        },
+        "ClaimPhase": {
+            "type": "string",
+            "description": "Current phase (Investigation, Evaluation, Negotiation, Litigation, Closed).",
+            "method": "extract",
+            "estimateSourceAndConfidence": True
+        },
+        
+        # ===== Insured Information =====
+        "InsuredName": {
+            "type": "string",
+            "description": "Name of the insured party.",
+            "method": "extract",
+            "estimateSourceAndConfidence": True
+        },
+        "InsuredType": {
+            "type": "string",
+            "description": "Type of insured (Individual, Corporation, LLC, etc.).",
+            "method": "extract",
+            "estimateSourceAndConfidence": True
+        },
+        "InsuredContact": {
+            "type": "string",
+            "description": "Contact information for the insured.",
+            "method": "extract",
+            "estimateSourceAndConfidence": True
+        },
+        
+        # ===== Claimant Information =====
+        "ClaimantName": {
+            "type": "string",
+            "description": "Name of the claimant (third party if liability claim).",
+            "method": "extract",
+            "estimateSourceAndConfidence": True
+        },
+        "ClaimantType": {
+            "type": "string",
+            "description": "Type of claimant (Driver, Passenger, Pedestrian, Property Owner, etc.).",
+            "method": "extract",
+            "estimateSourceAndConfidence": True
+        },
+        "ClaimantAttorney": {
+            "type": "string",
+            "description": "Claimant's attorney name and firm if represented.",
+            "method": "extract",
+            "estimateSourceAndConfidence": True
+        },
+        "AttorneyRepresented": {
+            "type": "boolean",
+            "description": "Whether claimant is represented by attorney.",
+            "method": "extract",
+            "estimateSourceAndConfidence": True
+        },
+        
+        # ===== Incident/Loss Information =====
+        "DateOfLoss": {
+            "type": "date",
+            "description": "Date when the loss/incident occurred.",
+            "method": "extract",
+            "estimateSourceAndConfidence": True
+        },
+        "TimeOfLoss": {
+            "type": "string",
+            "description": "Time when the incident occurred.",
+            "method": "extract",
+            "estimateSourceAndConfidence": True
+        },
+        "LossLocation": {
+            "type": "string",
+            "description": "Location where the incident occurred.",
+            "method": "extract",
+            "estimateSourceAndConfidence": True
+        },
+        "CauseOfLoss": {
+            "type": "string",
+            "description": "Primary cause of the loss (Rear-end collision, Slip and fall, Fire, etc.).",
+            "method": "extract",
+            "estimateSourceAndConfidence": True
+        },
+        "LossDescription": {
+            "type": "string",
+            "description": "Detailed description of how the loss occurred.",
+            "method": "extract",
+            "estimateSourceAndConfidence": True
+        },
+        "WeatherConditions": {
+            "type": "string",
+            "description": "Weather conditions at time of loss if applicable.",
+            "method": "extract",
+            "estimateSourceAndConfidence": True
+        },
+        "PoliceReportNumber": {
+            "type": "string",
+            "description": "Police report number if applicable.",
+            "method": "extract",
+            "estimateSourceAndConfidence": True
+        },
+        
+        # ===== Liability Assessment =====
+        "LiabilityDetermination": {
+            "type": "string",
+            "description": "Liability percentage assessment (e.g., Insured 80%, Claimant 20%).",
+            "method": "extract",
+            "estimateSourceAndConfidence": True
+        },
+        "ComparativeNegligence": {
+            "type": "string",
+            "description": "Comparative/contributory negligence assessment.",
+            "method": "extract",
+            "estimateSourceAndConfidence": True
+        },
+        "LiabilityDisputed": {
+            "type": "boolean",
+            "description": "Whether liability is disputed.",
+            "method": "extract",
+            "estimateSourceAndConfidence": True
+        },
+        
+        # ===== Coverage Information =====
+        "CoverageType": {
+            "type": "string",
+            "description": "Type of coverage applicable (Liability, Collision, Comprehensive, etc.).",
+            "method": "extract",
+            "estimateSourceAndConfidence": True
+        },
+        "PolicyLimits": {
+            "type": "string",
+            "description": "Policy limits for the applicable coverage.",
+            "method": "extract",
+            "estimateSourceAndConfidence": True
+        },
+        "Deductible": {
+            "type": "string",
+            "description": "Applicable deductible amount.",
+            "method": "extract",
+            "estimateSourceAndConfidence": True
+        },
+        "CoverageIssues": {
+            "type": "array",
+            "description": "Any coverage issues or exclusions identified.",
+            "items": {"type": "string"},
+            "method": "extract",
+            "estimateSourceAndConfidence": True
+        },
+        
+        # ===== Injury Information (for BI claims) =====
+        "InjuryDescription": {
+            "type": "array",
+            "description": "List of injuries claimed.",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "injury": {"type": "string", "description": "Type of injury"},
+                    "body_part": {"type": "string", "description": "Body part affected"},
+                    "severity": {"type": "string", "description": "Severity level"},
+                    "treatment": {"type": "string", "description": "Treatment received"}
+                }
+            },
+            "method": "extract",
+            "estimateSourceAndConfidence": True
+        },
+        "PreExistingConditions": {
+            "type": "array",
+            "description": "Pre-existing conditions that may affect the claim.",
+            "items": {"type": "string"},
+            "method": "extract",
+            "estimateSourceAndConfidence": True
+        },
+        "TreatingProviders": {
+            "type": "array",
+            "description": "Healthcare providers treating the claimant.",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Provider name"},
+                    "specialty": {"type": "string", "description": "Medical specialty"},
+                    "treatment_dates": {"type": "string", "description": "Dates of treatment"}
+                }
+            },
+            "method": "extract",
+            "estimateSourceAndConfidence": True
+        },
+        "WorkStatus": {
+            "type": "string",
+            "description": "Claimant's work status (Working, Modified Duty, Off Work, Returned to Work).",
+            "method": "extract",
+            "estimateSourceAndConfidence": True
+        },
+        "LostWages": {
+            "type": "string",
+            "description": "Lost wages claimed.",
+            "method": "extract",
+            "estimateSourceAndConfidence": True
+        },
+        
+        # ===== Financial Information =====
+        "PaidIndemnity": {
+            "type": "string",
+            "description": "Total indemnity payments made to date.",
+            "method": "extract",
+            "estimateSourceAndConfidence": True
+        },
+        "PaidExpense": {
+            "type": "string",
+            "description": "Total expenses paid (legal, medical, investigation).",
+            "method": "extract",
+            "estimateSourceAndConfidence": True
+        },
+        "TotalIncurred": {
+            "type": "string",
+            "description": "Total incurred (paid + reserves).",
+            "method": "extract",
+            "estimateSourceAndConfidence": True
+        },
+        "CurrentReserve": {
+            "type": "string",
+            "description": "Current reserve amount set for the claim.",
+            "method": "extract",
+            "estimateSourceAndConfidence": True
+        },
+        "MedicalSpecials": {
+            "type": "string",
+            "description": "Total medical special damages claimed.",
+            "method": "extract",
+            "estimateSourceAndConfidence": True
+        },
+        "GeneralDamages": {
+            "type": "string",
+            "description": "General damages (pain and suffering) estimated or demanded.",
+            "method": "extract",
+            "estimateSourceAndConfidence": True
+        },
+        "PropertyDamage": {
+            "type": "string",
+            "description": "Property damage amount if applicable.",
+            "method": "extract",
+            "estimateSourceAndConfidence": True
+        },
+        
+        # ===== Litigation/Subrogation =====
+        "LitigationStatus": {
+            "type": "string",
+            "description": "Whether the claim is in litigation.",
+            "method": "extract",
+            "estimateSourceAndConfidence": True
+        },
+        "SuitFiled": {
+            "type": "boolean",
+            "description": "Whether a lawsuit has been filed.",
+            "method": "extract",
+            "estimateSourceAndConfidence": True
+        },
+        "SubrogationPotential": {
+            "type": "string",
+            "description": "Subrogation potential and status.",
+            "method": "extract",
+            "estimateSourceAndConfidence": True
+        },
+        "FraudIndicators": {
+            "type": "array",
+            "description": "Any fraud indicators or red flags identified.",
+            "items": {"type": "string"},
+            "method": "extract",
+            "estimateSourceAndConfidence": True
+        },
+        
+        # ===== Severity Assessment =====
+        "SeverityRating": {
+            "type": "string",
+            "description": "Overall severity rating (Low, Medium, High, Critical).",
+            "method": "extract",
+            "estimateSourceAndConfidence": True
+        },
+        "ComplexityRating": {
+            "type": "string",
+            "description": "Claim complexity rating.",
+            "method": "extract",
+            "estimateSourceAndConfidence": True
+        }
+    }
+}
+
+PROPERTY_CASUALTY_CLAIMS_DEFAULT_PROMPTS = {
+    "liability_case_notes": {
+        "accident_overview": """
+You are an expert property and casualty claims adjuster.
+
+From the claim documents in Markdown, provide a comprehensive ACCIDENT OVERVIEW.
+
+Focus on:
+- Detailed description of the incident
+- Parties involved and their roles
+- Location and environmental factors
+- Timeline of events
+- Initial liability indicators
+
+Return STRICT JSON:
+
+{
+  "summary": "3-4 sentence narrative of the accident.",
+  "incident_details": {
+    "date": "Date of loss",
+    "time": "Time if known",
+    "location": "Specific location",
+    "description": "Detailed description of what happened"
+  },
+  "parties": [
+    {
+      "name": "Party name",
+      "role": "Insured | Claimant | Witness | Other",
+      "involvement": "How they were involved"
+    }
+  ],
+  "environmental_factors": {
+    "weather": "Weather conditions",
+    "road_conditions": "If applicable",
+    "visibility": "Visibility conditions",
+    "other": "Other relevant factors"
+  },
+  "initial_liability_indicators": "Preliminary liability assessment",
+  "inline_links": ["References to supporting documents"]
+}
+        """,
+        "coverage_triggers": """
+You are an expert property and casualty coverage analyst.
+
+From the claim documents, analyze COVERAGE TRIGGERS and policy application.
+
+Evaluate:
+- Applicable coverage(s) under the policy
+- Policy limits and deductibles
+- Coverage exclusions or limitations
+- Potential coverage issues
+
+Return STRICT JSON:
+
+{
+  "summary": "Coverage analysis summary.",
+  "applicable_coverages": [
+    {
+      "coverage_type": "Type of coverage",
+      "policy_limit": "Limit amount",
+      "deductible": "Deductible if any",
+      "applies": true,
+      "rationale": "Why it applies"
+    }
+  ],
+  "potential_exclusions": [
+    {
+      "exclusion": "Exclusion language or type",
+      "applies": "Yes | No | Possibly",
+      "analysis": "Explanation"
+    }
+  ],
+  "coverage_issues": ["Any coverage concerns"],
+  "inline_links": ["Document references"]
+}
+        """,
+        "liability_assessment": """
+You are an expert liability claims adjuster.
+
+From the claim documents, provide a detailed LIABILITY ASSESSMENT.
+
+Analyze:
+- Insured's percentage of liability
+- Claimant's comparative negligence
+- Evidence supporting liability determination
+- Disputed facts or contested liability
+
+Return STRICT JSON:
+
+{
+  "summary": "Liability assessment summary.",
+  "liability_determination": {
+    "insured_percentage": "Percentage (e.g., 80%)",
+    "claimant_percentage": "Percentage (e.g., 20%)",
+    "confidence": "High | Medium | Low",
+    "basis": "Basis for determination"
+  },
+  "supporting_evidence": [
+    {
+      "evidence_type": "Police Report | Witness Statement | Photos | Video | Other",
+      "description": "What it shows",
+      "impact": "Supports | Undermines | Neutral"
+    }
+  ],
+  "disputed_facts": ["Facts in dispute"],
+  "liability_status": "Clear Liability | Disputed | Comparative | Under Investigation",
+  "inline_links": ["Document references"]
+}
+        """,
+        "causation_preexisting": """
+You are an expert claims adjuster analyzing causation and pre-existing conditions.
+
+From the claim documents, analyze CAUSATION and PRE-EXISTING CONDITIONS.
+
+Evaluate:
+- Causal relationship between accident and injuries
+- Pre-existing medical conditions
+- Aggravation vs. new injury analysis
+- Medical record timeline
+
+Return STRICT JSON:
+
+{
+  "summary": "Causation and pre-existing analysis.",
+  "causation_analysis": {
+    "injuries_claimed": ["List of claimed injuries"],
+    "causation_determination": "Directly caused | Aggravation | Questionable | Unrelated",
+    "analysis": "Detailed causation analysis"
+  },
+  "pre_existing_conditions": [
+    {
+      "condition": "Pre-existing condition",
+      "documentation": "Where documented",
+      "impact_on_claim": "How it affects the claim",
+      "apportionment": "Percentage if applicable"
+    }
+  ],
+  "medical_timeline": {
+    "prior_treatment": "Treatment before accident",
+    "gap_in_treatment": "Any gaps in treatment",
+    "treatment_pattern": "Normal | Excessive | Inconsistent"
+  },
+  "inline_links": ["Medical record references"]
+}
+        """,
+        "red_flags": """
+You are an expert claims adjuster identifying fraud indicators and red flags.
+
+From the claim documents, identify any RED FLAGS or fraud indicators.
+
+Look for:
+- Inconsistencies in statements
+- Suspicious timing or patterns
+- Documentation issues
+- Known fraud indicators
+
+Return STRICT JSON:
+
+{
+  "summary": "Red flags and fraud indicator summary.",
+  "red_flags": [
+    {
+      "flag_type": "Type of red flag",
+      "description": "What was identified",
+      "severity": "High | Medium | Low",
+      "recommended_action": "What to do about it"
+    }
+  ],
+  "fraud_indicators": [
+    "Specific fraud indicators noted"
+  ],
+  "inconsistencies": [
+    {
+      "area": "Where inconsistency found",
+      "description": "The inconsistency",
+      "significance": "Impact on claim"
+    }
+  ],
+  "siu_referral_recommended": "Yes | No",
+  "investigation_recommendations": ["Recommended investigative steps"],
+  "inline_links": ["Document references"]
+}
+        """
+    },
+    "incident_timeline": {
+        "medical_timeline": """
+You are an expert property and casualty claims analyst.
+
+From the claim documents, construct an INCIDENT AND MEDICAL TIMELINE.
+
+Include:
+- Date of loss event
+- Medical treatment dates
+- Key claim milestones
+- Categorize each event's impact on liability
+
+Return STRICT JSON:
+
+{
+  "summary": "Timeline overview.",
+  "timeline_events": [
+    {
+      "date": "MM/DD/YYYY",
+      "event_type": "Incident | Medical | Legal | Investigation | Negotiation",
+      "description": "What occurred",
+      "liability_impact": "Supports Liability | Disputes Liability | Neutral",
+      "damages_impact": "Supports Damages | Disputes Damages | Neutral",
+      "source": "Document source"
+    }
+  ],
+  "key_dates": {
+    "date_of_loss": "Date",
+    "first_treatment": "Date",
+    "last_treatment": "Date",
+    "suit_filed": "Date if applicable"
+  },
+  "timeline_concerns": ["Any timeline issues or gaps"],
+  "treatment_summary": "Overall treatment pattern assessment"
+}
+        """
+    },
+    "injury_treatment": {
+        "injury_summary": """
+You are an expert bodily injury claims adjuster.
+
+From the claim documents, provide an INJURY AND TREATMENT SUMMARY.
+
+Analyze:
+- All injuries claimed
+- Treatment received for each
+- Treatment providers
+- Work status and restrictions
+- Prognosis
+
+Return STRICT JSON:
+
+{
+  "summary": "Overall injury and treatment summary.",
+  "injuries": [
+    {
+      "diagnosis": "Injury/diagnosis",
+      "body_part": "Body part affected",
+      "first_noted": "Date first documented",
+      "treatment": "Treatment summary",
+      "status": "Resolved | Ongoing | Permanent",
+      "notes": "Additional notes"
+    }
+  ],
+  "treatment_providers": [
+    {
+      "provider": "Provider name",
+      "specialty": "Specialty",
+      "treatment_dates": "Date range",
+      "charges": "Amount charged"
+    }
+  ],
+  "treatment_chronology": "Appropriate | Excessive | Delayed | Inconsistent",
+  "work_status": {
+    "current_status": "Working | Off Work | Modified Duty | Returned Full Duty",
+    "off_work_dates": "Date range if applicable",
+    "restrictions": "Any work restrictions"
+  },
+  "prognosis": "Expected outcome and timeline"
+}
+        """
+    },
+    "evidence_matrix": {
+        "evidence_analysis": """
+You are an expert claims adjuster evaluating evidence.
+
+From the claim documents, create an EVIDENCE MATRIX categorizing all evidence.
+
+Categorize each piece of evidence by:
+- Type of evidence
+- What it supports or disputes
+- Reliability and weight
+
+Return STRICT JSON:
+
+{
+  "summary": "Evidence analysis overview.",
+  "evidence_items": [
+    {
+      "source": "Document or evidence source",
+      "evidence_type": "Police Report | Medical Record | Witness | Photo | Video | Expert | Other",
+      "supports_liability": true,
+      "supports_injury": true,
+      "supports_damages": true,
+      "challenges_claim": false,
+      "coverage_relevant": true,
+      "weight": "High | Medium | Low",
+      "notes": "Key takeaways"
+    }
+  ],
+  "evidence_gaps": ["Missing evidence that would be helpful"],
+  "strongest_evidence": "What most supports/undermines the claim",
+  "recommended_additional_evidence": ["Evidence to obtain"]
+}
+        """
+    },
+    "damages_negotiation": {
+        "damages_brief": """
+You are an expert claims adjuster preparing a damages and negotiation brief.
+
+From the claim documents, prepare a comprehensive DAMAGES AND NEGOTIATION BRIEF.
+
+Include:
+- Economic damages breakdown
+- General damages assessment
+- Settlement valuation range
+- Negotiation strategy
+
+Return STRICT JSON:
+
+{
+  "summary": "Damages and negotiation summary.",
+  "economic_damages": {
+    "medical_specials": "Total medical bills",
+    "lost_wages": "Lost wage claim",
+    "future_medicals": "Future medical estimate",
+    "other_economic": "Other economic damages",
+    "total_economic": "Total economic damages",
+    "ai_estimated_range": "AI estimated value range"
+  },
+  "general_damages": {
+    "pain_suffering": "Pain and suffering assessment",
+    "estimated_range": "Low to high estimate",
+    "multiplier_applied": "Multiplier if using multiple method"
+  },
+  "total_value_range": {
+    "low": "Low end estimate",
+    "target": "Target settlement",
+    "high": "High end exposure"
+  },
+  "negotiation_strategy": {
+    "opening_offer": "Recommended opening offer",
+    "target_settlement": "Target settlement amount",
+    "walk_away": "Walk away point",
+    "strengths": ["Claim strengths for negotiation"],
+    "weaknesses": ["Claim weaknesses"],
+    "recommended_talking_points": ["Key points to emphasize"]
+  }
+}
+        """
+    },
+    "tasks_next_steps": {
+        "settlement_memo": """
+You are an expert claims adjuster preparing a settlement recommendation.
+
+Based on all claim information, prepare a SETTLEMENT MEMO with recommended action.
+
+Include:
+- Claim evaluation summary
+- Settlement authority request
+- Risk analysis
+- Recommended next steps
+
+Return STRICT JSON:
+
+{
+  "summary": "Settlement recommendation summary.",
+  "claim_evaluation": {
+    "liability_assessment": "Summary of liability",
+    "damages_assessment": "Summary of damages",
+    "coverage_status": "Coverage confirmation",
+    "overall_exposure": "Total exposure estimate"
+  },
+  "settlement_recommendation": {
+    "recommended_action": "Settle | Litigate | Investigate Further | Deny",
+    "settlement_authority": "Amount requested",
+    "target_settlement": "Target settlement amount",
+    "rationale": "Detailed rationale"
+  },
+  "risk_analysis": {
+    "trial_verdict_range": "Estimated verdict range",
+    "litigation_costs": "Estimated defense costs",
+    "probability_of_adverse_outcome": "Percentage",
+    "recommendation": "Cost-benefit analysis"
+  },
+  "next_steps": [
+    {
+      "task": "Task description",
+      "owner": "Who should complete",
+      "due_date": "Suggested due date",
+      "priority": "High | Medium | Low"
+    }
+  ],
+  "approvals_needed": ["Any approvals required"]
+}
+        """
+    }
+}
+
+
+# =============================================================================
+# LEGACY CLAIMS SCHEMA (for backward compatibility)
+# =============================================================================
+
+CLAIMS_FIELD_SCHEMA = LIFE_HEALTH_CLAIMS_FIELD_SCHEMA
+CLAIMS_DEFAULT_PROMPTS = LIFE_HEALTH_CLAIMS_DEFAULT_PROMPTS
 
 
 # =============================================================================
@@ -1017,16 +2121,38 @@ PERSONA_CONFIGS: Dict[PersonaType, PersonaConfig] = {
         custom_analyzer_id="underwritingAnalyzer",
         enabled=True,
     ),
+    PersonaType.LIFE_HEALTH_CLAIMS: PersonaConfig(
+        id="life_health_claims",
+        name="Life & Health Claims",
+        description="Health insurance claims processing workbench for medical claims, eligibility verification, and benefits adjudication",
+        icon="🏥",
+        color="#0891b2",  # Cyan
+        field_schema=LIFE_HEALTH_CLAIMS_FIELD_SCHEMA,
+        default_prompts=LIFE_HEALTH_CLAIMS_DEFAULT_PROMPTS,
+        custom_analyzer_id="lifeHealthClaimsAnalyzer",
+        enabled=True,
+    ),
+    PersonaType.PROPERTY_CASUALTY_CLAIMS: PersonaConfig(
+        id="property_casualty_claims",
+        name="Property & Casualty Claims",
+        description="P&C claims processing workbench for auto, liability, and property damage claims with liability assessment and settlement negotiation",
+        icon="🚗",
+        color="#dc2626",  # Red
+        field_schema=PROPERTY_CASUALTY_CLAIMS_FIELD_SCHEMA,
+        default_prompts=PROPERTY_CASUALTY_CLAIMS_DEFAULT_PROMPTS,
+        custom_analyzer_id="propertyCasualtyClaimsAnalyzer",
+        enabled=True,
+    ),
     PersonaType.CLAIMS: PersonaConfig(
         id="claims",
-        name="Claims",
-        description="Insurance claims processing workbench for reviewing medical claims and documentation",
+        name="Claims (Legacy)",
+        description="Legacy claims persona - use Life & Health Claims or Property & Casualty Claims instead",
         icon="🏥",
         color="#0891b2",  # Cyan
         field_schema=CLAIMS_FIELD_SCHEMA,
         default_prompts=CLAIMS_DEFAULT_PROMPTS,
         custom_analyzer_id="claimsAnalyzer",
-        enabled=True,  # Mock enabled for demo
+        enabled=False,  # Disabled - replaced by specific claims personas
     ),
     PersonaType.MORTGAGE: PersonaConfig(
         id="mortgage",
@@ -1046,13 +2172,29 @@ PERSONA_CONFIGS: Dict[PersonaType, PersonaConfig] = {
 # HELPER FUNCTIONS
 # =============================================================================
 
+def normalize_persona_id(persona_id: str) -> str:
+    """Normalize persona ID, handling legacy aliases.
+    
+    Args:
+        persona_id: The persona ID to normalize
+        
+    Returns:
+        The normalized persona ID (e.g., 'claims' -> 'life_health_claims')
+    """
+    if persona_id and persona_id.lower() == 'claims':
+        return 'life_health_claims'
+    return persona_id
+
+
 def get_persona_config(persona_id: str) -> PersonaConfig:
     """Get configuration for a specific persona by ID."""
     try:
+        # Handle legacy 'claims' mapping to life_health_claims
+        persona_id = normalize_persona_id(persona_id)
         persona_type = PersonaType(persona_id.lower())
         return PERSONA_CONFIGS[persona_type]
     except (ValueError, KeyError):
-        raise ValueError(f"Unknown persona: {persona_id}. Valid options: {[p.value for p in PersonaType]}")
+        raise ValueError(f"Unknown persona: {persona_id}. Valid options: {[p.value for p in PersonaType if p != PersonaType.CLAIMS]}")
 
 
 def list_personas() -> List[Dict[str, Any]]:
@@ -1067,6 +2209,7 @@ def list_personas() -> List[Dict[str, Any]]:
             "enabled": config.enabled,
         }
         for config in PERSONA_CONFIGS.values()
+        if config.id != "claims"  # Exclude legacy claims persona from list
     ]
 
 

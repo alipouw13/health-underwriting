@@ -14,6 +14,8 @@ import DocumentsPanel from '@/components/DocumentsPanel';
 import SourcePagesPanel from '@/components/SourcePagesPanel';
 import LoadingSpinner from '@/components/LoadingSpinner';
 import { ClaimsSummary, MedicalRecordsPanel, EligibilityPanel } from '@/components/claims';
+import LifeHealthClaimsOverview from '@/components/claims/LifeHealthClaimsOverview';
+import PropertyCasualtyClaimsOverview from '@/components/claims/PropertyCasualtyClaimsOverview';
 import { usePersona } from '@/lib/PersonaContext';
 import type { ApplicationMetadata, ApplicationListItem } from '@/lib/types';
 
@@ -29,19 +31,64 @@ export default function Home() {
 
   // Load applications list - reload when persona changes
   useEffect(() => {
-    loadApplications();
+    async function fetchApplications() {
+      try {
+        setLoading(true);
+        setError(null);
+        setSelectedApp(null); // Clear selection when switching personas
+        setApplications([]); // Clear applications immediately to prevent stale data
+        console.log('Loading applications for persona:', currentPersona);
+        const response = await fetch(`/api/applications?persona=${currentPersona}`, {
+          cache: 'no-store',
+          headers: {
+            'Cache-Control': 'no-cache',
+          },
+        });
+        if (response.ok) {
+          const apps = await response.json();
+          console.log('Loaded applications:', apps.length, 'for persona:', currentPersona, apps.map((a: any) => ({ id: a.id, persona: a.persona })));
+          setApplications(apps);
+          // Select the first completed app if available
+          if (apps.length > 0) {
+            const completedApp = apps.find((a: ApplicationListItem) => a.status === 'completed') || apps[0];
+            loadApplication(completedApp.id);
+          } else {
+            setLoading(false);
+          }
+        } else {
+          setError('Failed to load applications');
+          setApplications([]);
+          setLoading(false);
+        }
+      } catch (err) {
+        console.error('Failed to load applications:', err);
+        setError('Failed to connect to API server');
+        setApplications([]);
+        setLoading(false);
+      }
+    }
+    
+    fetchApplications();
   }, [currentPersona]);
 
   async function loadApplications() {
+    // This function is now just for manual refresh
     try {
       setLoading(true);
       setError(null);
-      setSelectedApp(null); // Clear selection when switching personas
-      const response = await fetch(`/api/applications?persona=${currentPersona}`);
+      setSelectedApp(null);
+      setApplications([]);
+      console.log('Loading applications for persona:', currentPersona);
+      const response = await fetch(`/api/applications?persona=${currentPersona}`, {
+        cache: 'no-store',
+        headers: {
+          'Cache-Control': 'no-cache',
+        },
+      });
       if (response.ok) {
         const apps = await response.json();
+        console.log('Loaded applications:', apps.length, 'for persona:', currentPersona, apps.map((a: any) => ({ id: a.id, persona: a.persona })));
         setApplications(apps);
-        // Select the first completed app if available
         if (apps.length > 0) {
           const completedApp = apps.find((a: ApplicationListItem) => a.status === 'completed') || apps[0];
           loadApplication(completedApp.id);
@@ -109,8 +156,11 @@ export default function Home() {
       case 'overview':
       default:
         // Render persona-specific overview
-        if (currentPersona === 'claims') {
-          return renderClaimsOverview();
+        if (currentPersona === 'life_health_claims') {
+          return renderLifeHealthClaimsOverview();
+        }
+        if (currentPersona === 'property_casualty_claims') {
+          return renderPropertyCasualtyClaimsOverview();
         }
         if (currentPersona === 'mortgage') {
           return renderMortgageOverview();
@@ -156,24 +206,35 @@ export default function Home() {
     );
   };
 
-  const renderClaimsOverview = () => {
-    return (
-      <div className="flex-1 overflow-auto p-6">
-        <div className="max-w-7xl mx-auto">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Claims Summary */}
-            <ClaimsSummary application={selectedApp || undefined} />
-
-            {/* Eligibility Panel */}
-            <EligibilityPanel application={selectedApp || undefined} />
-
-            {/* Medical Records - Full Width */}
-            <div className="lg:col-span-2">
-              <MedicalRecordsPanel application={selectedApp || undefined} />
-            </div>
+  const renderLifeHealthClaimsOverview = () => {
+    if (!selectedApp) {
+      return (
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-center text-slate-500">
+            <p className="text-lg font-medium">No claims application selected</p>
+            <p className="text-sm mt-2">Select a claim from the dropdown to view details</p>
           </div>
         </div>
-      </div>
+      );
+    }
+    return (
+      <LifeHealthClaimsOverview application={selectedApp} />
+    );
+  };
+
+  const renderPropertyCasualtyClaimsOverview = () => {
+    if (!selectedApp) {
+      return (
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-center text-slate-500">
+            <p className="text-lg font-medium">No claims application selected</p>
+            <p className="text-sm mt-2">Select a claim from the dropdown to view details</p>
+          </div>
+        </div>
+      );
+    }
+    return (
+      <PropertyCasualtyClaimsOverview application={selectedApp} />
     );
   };
 

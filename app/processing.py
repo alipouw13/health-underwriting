@@ -21,6 +21,7 @@ from .storage import (
     save_application_metadata,
     save_cu_raw_result,
 )
+from .personas import get_persona_config
 from .utils import setup_logging
 
 logger = setup_logging()
@@ -47,13 +48,29 @@ def run_content_understanding_for_files(
     all_fields: Dict[str, Any] = {}
     analyzer_used = None
 
+    # Get persona-specific analyzer ID
+    persona_analyzer_id = settings.content_understanding.custom_analyzer_id  # Default
+    if app_md.persona:
+        try:
+            persona_config = get_persona_config(app_md.persona)
+            persona_analyzer_id = persona_config.custom_analyzer_id
+            logger.info("Using persona-specific analyzer: %s for persona: %s", persona_analyzer_id, app_md.persona)
+        except ValueError as e:
+            logger.warning("Failed to get persona config for %s: %s. Using default analyzer.", app_md.persona, e)
+
     for stored in app_md.files:
         logger.info("Analyzing file with Content Understanding: %s", stored.path)
         
         # Use confidence-enabled analyzer if enabled
         if use_confidence_scoring and settings.content_understanding.enable_confidence_scores:
-            payload = analyze_document_with_confidence(settings.content_understanding, stored.path)
-            analyzer_used = settings.content_understanding.custom_analyzer_id
+            # Temporarily override the custom_analyzer_id in settings for this call
+            original_analyzer = settings.content_understanding.custom_analyzer_id
+            settings.content_understanding.custom_analyzer_id = persona_analyzer_id
+            try:
+                payload = analyze_document_with_confidence(settings.content_understanding, stored.path)
+                analyzer_used = persona_analyzer_id
+            finally:
+                settings.content_understanding.custom_analyzer_id = original_analyzer
             
             # Extract fields with confidence
             fields = extract_fields_with_confidence(payload)
@@ -260,7 +277,9 @@ def run_underwriting_prompts(
     if not app_md.document_markdown:
         raise ValueError("ApplicationMarkdown is empty; run Content Understanding first.")
 
-    prompts = prompts_override or load_prompts(settings.app.storage_root)
+    # Load persona-specific prompts
+    persona = app_md.persona or "underwriting"
+    prompts = prompts_override or load_prompts(settings.app.storage_root, persona)
 
     # Determine which sections to run
     sections_to_process = []

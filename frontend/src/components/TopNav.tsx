@@ -82,37 +82,39 @@ export default function TopNav({
               {appDropdownOpen && (
                 <>
                   <div className="fixed inset-0 z-10" onClick={() => setAppDropdownOpen(false)} />
-                  <div className="absolute top-full left-0 mt-1 w-64 bg-white rounded-lg shadow-lg border border-slate-200 py-1 z-20">
-                    {applications.map((app) => (
-                      <button
-                        key={app.id}
-                        onClick={() => {
-                          onSelectApp(app.id);
-                          setAppDropdownOpen(false);
-                        }}
-                        className={clsx(
-                          'w-full text-left px-4 py-2 text-sm hover:bg-slate-50 transition-colors',
-                          selectedAppId === app.id && 'bg-indigo-50 text-indigo-700'
-                        )}
-                      >
-                        <div className="font-medium truncate">
-                          {app.summary_title || app.id.substring(0, 8)}
-                        </div>
-                        <div className="text-xs text-slate-500 flex items-center gap-2">
-                          {app.external_reference || 'No reference'}
-                          <span className={clsx(
-                            'px-1.5 py-0.5 rounded text-[10px] font-medium',
-                            app.status === 'completed' ? 'bg-emerald-100 text-emerald-700' :
-                            app.status === 'extracted' ? 'bg-sky-100 text-sky-700' :
-                            app.status === 'error' ? 'bg-rose-100 text-rose-700' :
-                            'bg-amber-100 text-amber-700'
-                          )}>
-                            {app.status}
-                          </span>
-                        </div>
-                      </button>
-                    ))}
-                    <div className="border-t border-slate-200 mt-1 pt-1">
+                  <div className="absolute top-full left-0 mt-1 w-64 bg-white rounded-lg shadow-lg border border-slate-200 z-20 max-h-96 overflow-y-auto flex flex-col">
+                    <div className="py-1 overflow-y-auto">
+                      {applications.map((app) => (
+                        <button
+                          key={app.id}
+                          onClick={() => {
+                            onSelectApp(app.id);
+                            setAppDropdownOpen(false);
+                          }}
+                          className={clsx(
+                            'w-full text-left px-4 py-2 text-sm hover:bg-slate-50 transition-colors',
+                            selectedAppId === app.id && 'bg-indigo-50 text-indigo-700'
+                          )}
+                        >
+                          <div className="font-medium truncate">
+                            {app.summary_title || app.id.substring(0, 8)}
+                          </div>
+                          <div className="text-xs text-slate-500 flex items-center gap-2">
+                            {app.external_reference || 'No reference'}
+                            <span className={clsx(
+                              'px-1.5 py-0.5 rounded text-[10px] font-medium',
+                              app.status === 'completed' ? 'bg-emerald-100 text-emerald-700' :
+                              app.status === 'extracted' ? 'bg-sky-100 text-sky-700' :
+                              app.status === 'error' ? 'bg-rose-100 text-rose-700' :
+                              'bg-amber-100 text-amber-700'
+                            )}>
+                              {app.status}
+                            </span>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                    <div className="border-t border-slate-200 mt-auto">
                       <Link
                         href="/admin"
                         className="block w-full text-left px-4 py-2 text-sm text-indigo-600 hover:bg-indigo-50 transition-colors"

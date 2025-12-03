@@ -157,9 +157,15 @@ def load_application(root: str, app_id: str) -> Optional[ApplicationMetadata]:
 
 def list_applications(root: str, persona: Optional[str] = None) -> List[Dict[str, Any]]:
     """Return lightweight list of available applications, optionally filtered by persona."""
+    from app.personas import normalize_persona_id
+    
     base = get_storage_root(root) / "applications"
     if not base.exists():
         return []
+
+    # Normalize the filter persona (handles legacy 'claims' -> 'life_health_claims')
+    if persona is not None:
+        persona = normalize_persona_id(persona)
 
     apps: List[Dict[str, Any]] = []
     for app_dir in sorted(base.iterdir()):
@@ -174,6 +180,9 @@ def list_applications(root: str, persona: Optional[str] = None) -> List[Dict[str
         # Filter by persona if specified
         # Legacy apps without persona are treated as "underwriting"
         app_persona = data.get("persona") or "underwriting"
+        # Normalize app persona as well (handles legacy 'claims' in stored data)
+        app_persona = normalize_persona_id(app_persona)
+        
         if persona is not None and app_persona != persona:
             continue
             
