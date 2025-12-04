@@ -57,8 +57,8 @@ export default function MedicalRecordsPanel({ application }: MedicalRecordsPanel
   return (
     <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
       <div className="flex items-center gap-3 mb-6">
-        <div className="w-10 h-10 bg-cyan-100 rounded-lg flex items-center justify-center">
-          <Stethoscope className="w-5 h-5 text-cyan-600" />
+        <div className="w-10 h-10 bg-indigo-100 rounded-lg flex items-center justify-center">
+          <Stethoscope className="w-5 h-5 text-indigo-600" />
         </div>
         <div>
           <h2 className="text-lg font-semibold text-slate-900">Medical Records</h2>
@@ -70,12 +70,12 @@ export default function MedicalRecordsPanel({ application }: MedicalRecordsPanel
         {records.map((record) => (
           <div
             key={record.id}
-            className="p-4 border border-slate-200 rounded-lg hover:border-cyan-300 transition-colors"
+            className="p-4 border border-slate-200 rounded-lg hover:border-indigo-300 transition-colors"
           >
             <div className="flex items-start justify-between">
               <div className="flex-1">
                 <div className="flex items-center gap-2 mb-2">
-                  <span className="px-2 py-0.5 bg-cyan-100 text-cyan-700 rounded text-xs font-medium">
+                  <span className="px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded text-xs font-medium">
                     {record.type}
                   </span>
                   {record.icdCode && (
@@ -111,7 +111,7 @@ export default function MedicalRecordsPanel({ application }: MedicalRecordsPanel
 
       {/* Action buttons */}
       <div className="mt-6 flex items-center gap-3">
-        <button className="flex items-center gap-2 px-4 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition-colors">
+        <button className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors">
           <FileCheck className="w-4 h-4" />
           Verify Records
         </button>

@@ -85,8 +85,8 @@ export default function EligibilityPanel({ application }: EligibilityPanelProps)
   return (
     <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
       <div className="flex items-center gap-3 mb-6">
-        <div className="w-10 h-10 bg-cyan-100 rounded-lg flex items-center justify-center">
-          <Shield className="w-5 h-5 text-cyan-600" />
+        <div className="w-10 h-10 bg-indigo-100 rounded-lg flex items-center justify-center">
+          <Shield className="w-5 h-5 text-indigo-600" />
         </div>
         <div>
           <h2 className="text-lg font-semibold text-slate-900">Eligibility Verification</h2>

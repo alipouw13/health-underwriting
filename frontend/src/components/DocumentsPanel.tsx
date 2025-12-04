@@ -40,8 +40,8 @@ export default function DocumentsPanel({ files }: DocumentsPanelProps) {
             className="flex items-center justify-between p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
           >
             <div className="flex items-center gap-4">
-              <div className="w-12 h-12 bg-red-100 rounded-lg flex items-center justify-center">
-                <FileText className="w-6 h-6 text-red-600" />
+              <div className="w-12 h-12 bg-indigo-100 rounded-lg flex items-center justify-center">
+                <FileText className="w-6 h-6 text-indigo-600" />
               </div>
               <div>
                 <h3 className="font-medium text-gray-900">{file.filename}</h3>
@@ -77,8 +77,8 @@ export default function DocumentsPanel({ files }: DocumentsPanelProps) {
         ))}
       </div>
 
-      <div className="mt-6 p-4 bg-blue-50 rounded-lg">
-        <p className="text-sm text-blue-700">
+      <div className="mt-6 p-4 bg-indigo-50 rounded-lg">
+        <p className="text-sm text-indigo-700">
           <strong>Tip:</strong> These are the original PDF documents uploaded for
           this application. The extracted text and analysis are available in the
           Source Pages view.

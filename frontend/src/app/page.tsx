@@ -243,7 +243,7 @@ export default function Home() {
       <div className="flex-1 overflow-auto p-6">
         <div className="max-w-3xl mx-auto">
           <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-8 text-center">
-            <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <div className="w-16 h-16 bg-indigo-100 rounded-full flex items-center justify-center mx-auto mb-4">
               <span className="text-3xl">🏠</span>
             </div>
             <h2 className="text-2xl font-semibold text-slate-900 mb-2">
@@ -253,10 +253,10 @@ export default function Home() {
               The Mortgage underwriting workbench is coming soon. This workspace will help you 
               process loan applications, property documents, and borrower verification.
             </p>
-            <div className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-100 text-emerald-700 rounded-lg">
+            <div className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-100 text-indigo-700 rounded-lg">
               <span className="relative flex h-3 w-3">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-3 w-3 bg-indigo-500"></span>
               </span>
               Coming Soon
             </div>

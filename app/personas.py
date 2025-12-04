@@ -765,25 +765,25 @@ LIFE_HEALTH_CLAIMS_FIELD_SCHEMA = {
         # ===== Policy Information =====
         "PolicyNumber": {
             "type": "string",
-            "description": "Insurance policy number or group number.",
+            "description": "Insurance policy number, often labeled as 'Policy #', 'Policy ID', 'Subscriber ID', or found near the member name. Format is typically alphanumeric.",
             "method": "extract",
             "estimateSourceAndConfidence": True
         },
         "PlanName": {
             "type": "string",
-            "description": "Name of the insurance plan (e.g., HMO Gold Plan, PPO Silver).",
+            "description": "Name of the insurance plan or product (e.g., 'HealthPlus Gold', 'Silver PPO'). Often found in the header or member information section.",
             "method": "extract",
             "estimateSourceAndConfidence": True
         },
         "CoverageDates": {
             "type": "string",
-            "description": "Coverage effective dates (start and end date).",
+            "description": "Coverage effective dates (start and end date). Look for 'Coverage Period', 'Effective Date', or date ranges.",
             "method": "extract",
             "estimateSourceAndConfidence": True
         },
         "GroupNumber": {
             "type": "string",
-            "description": "Employer or group number for group insurance.",
+            "description": "Employer or group number for group insurance. Labeled as 'Group #', 'Group ID'.",
             "method": "extract",
             "estimateSourceAndConfidence": True
         },
@@ -791,13 +791,13 @@ LIFE_HEALTH_CLAIMS_FIELD_SCHEMA = {
         # ===== Claim Information =====
         "ClaimNumber": {
             "type": "string",
-            "description": "Unique claim reference number.",
+            "description": "Unique claim reference number. Labeled as 'Claim #', 'Claim ID', or 'Reference Number'.",
             "method": "extract",
             "estimateSourceAndConfidence": True
         },
         "DateOfService": {
             "type": "date",
-            "description": "Date when the medical service was provided.",
+            "description": "Date when the medical service was provided. Labeled as 'Date of Service', 'DOS', 'Service Date'.",
             "method": "extract",
             "estimateSourceAndConfidence": True
         },
@@ -817,7 +817,7 @@ LIFE_HEALTH_CLAIMS_FIELD_SCHEMA = {
         # ===== Provider Information =====
         "ProviderName": {
             "type": "string",
-            "description": "Name of the healthcare provider or physician.",
+            "description": "Name of the healthcare provider, physician, or clinic rendering services. Look for 'Provider', 'Physician', 'Doctor', or letterhead.",
             "method": "extract",
             "estimateSourceAndConfidence": True
         },
@@ -913,25 +913,25 @@ LIFE_HEALTH_CLAIMS_FIELD_SCHEMA = {
         # ===== Financial Information =====
         "BilledAmount": {
             "type": "string",
-            "description": "Total amount billed by the provider.",
+            "description": "Total amount billed by the provider. Labeled as 'Billed Amount', 'Total Charges', 'Submitted Charges'.",
             "method": "extract",
             "estimateSourceAndConfidence": True
         },
         "AllowedAmount": {
             "type": "string",
-            "description": "Amount allowed by the insurance plan.",
+            "description": "Amount allowed by the insurance plan for the service. Labeled as 'Allowed Amount', 'Negotiated Rate'.",
             "method": "extract",
             "estimateSourceAndConfidence": True
         },
         "PlanLiability": {
             "type": "string",
-            "description": "Amount the insurance plan is responsible for.",
+            "description": "Amount the insurance plan pays. Labeled as 'Plan Pays', 'Benefit Amount', 'Net Payment'.",
             "method": "extract",
             "estimateSourceAndConfidence": True
         },
         "MemberOOP": {
             "type": "string",
-            "description": "Member out-of-pocket responsibility (copay, coinsurance, deductible).",
+            "description": "Member's out-of-pocket responsibility (Deductible + Co-pay + Co-insurance). Labeled as 'Member Responsibility', 'Patient Pays', 'You Pay'.",
             "method": "extract",
             "estimateSourceAndConfidence": True
         },
@@ -1140,6 +1140,11 @@ You are an expert health insurance benefits specialist.
 
 From the claim documents, verify ELIGIBILITY AND ENROLLMENT status.
 
+CRITICAL:
+- EXTRACT ONLY information explicitly present in the documents.
+- DO NOT INFER coverage dates or status if not visible.
+- If eligibility information is missing, state "Not Documented".
+
 Check:
 - Member enrollment status at date of service
 - Coverage effective dates
@@ -1149,30 +1154,36 @@ Check:
 Return STRICT JSON:
 
 {
-  "summary": "Eligibility verification summary.",
-  "eligibility_status": "Eligible | Not Eligible | Partially Eligible",
+  "summary": "Eligibility verification summary based on available documents.",
+  "eligibility_status": "Eligible | Not Eligible | Partially Eligible | Verification Needed",
   "member_info": {
     "name": "Member name",
     "member_id": "ID number",
     "group": "Group name/number"
   },
   "coverage_dates": {
-    "effective_date": "Start date",
-    "termination_date": "End date or Active"
+    "effective_date": "Start date (or 'Not Documented')",
+    "termination_date": "End date (or 'Not Documented')"
   },
   "plan_details": {
     "plan_name": "Plan name",
     "plan_type": "HMO | PPO | EPO | POS | Other",
-    "network_status": "In-Network | Out-of-Network | Mixed"
+    "network_status": "In-Network | Out-of-Network | Mixed | Unknown"
   },
-  "eligibility_issues": ["List any issues found"],
-  "processing_action": "Proceed | Hold | Deny - Not Eligible"
+  "eligibility_issues": ["List any issues found or 'Missing Eligibility Document'"],
+  "processing_action": "Proceed | Hold | Deny - Not Eligible | Request Eligibility Info"
 }
         """,
         "benefit_limits": """
 You are an expert health insurance benefits analyst.
 
 From the claim documents, analyze BENEFIT LIMITS and their application.
+
+CRITICAL:
+- EXTRACT ONLY data explicitly present in the provided documents.
+- DO NOT INFER, GUESS, or SIMULATE benefit limits, deductibles, or accumulators.
+- If the documents do not contain specific dollar amounts (e.g. "Deductible: $500"), return "Not Documented" or null.
+- Do not assume standard plan features based on the Plan Name.
 
 Review:
 - Annual/lifetime maximums
@@ -1183,34 +1194,38 @@ Review:
 Return STRICT JSON:
 
 {
-  "summary": "Benefit limits analysis.",
+  "summary": "Benefit limits analysis based ONLY on provided text.",
   "applicable_limits": [
     {
       "benefit_type": "Type of benefit",
-      "limit_amount": "Maximum allowed",
-      "amount_used": "Already utilized",
-      "amount_remaining": "Still available",
-      "status": "Within Limits | Approaching Limit | Exceeded"
+      "limit_amount": "Maximum allowed (or 'Not Documented')",
+      "amount_used": "Already utilized (or 'Not Documented')",
+      "amount_remaining": "Still available (or 'Not Documented')",
+      "status": "Within Limits | Approaching Limit | Exceeded | Unknown"
     }
   ],
   "deductible_status": {
-    "annual_deductible": "Amount",
-    "met_to_date": "Amount met",
-    "remaining": "Amount remaining"
+    "annual_deductible": "Amount (or 'Not Documented')",
+    "met_to_date": "Amount met (or 'Not Documented')",
+    "remaining": "Amount remaining (or 'Not Documented')"
   },
   "oop_maximum": {
-    "annual_max": "Amount",
-    "met_to_date": "Amount met",
-    "remaining": "Amount remaining"
+    "annual_max": "Amount (or 'Not Documented')",
+    "met_to_date": "Amount met (or 'Not Documented')",
+    "remaining": "Amount remaining (or 'Not Documented')"
   },
-  "limit_concerns": ["Any concerns about limits"],
-  "processing_action": "Apply standard benefits | Apply limit | Review with member"
+  "limit_concerns": ["Any concerns about limits or missing data"],
+  "processing_action": "Apply standard benefits | Apply limit | Review with member | Request Benefit Info"
 }
         """,
         "exclusions_limitations": """
 You are an expert health insurance policy analyst.
 
 From the claim documents, identify any EXCLUSIONS OR LIMITATIONS that may apply.
+
+CRITICAL:
+- Only list exclusions explicitly mentioned in the provided documents.
+- Do not list general exclusions unless found in the text.
 
 Check:
 - Policy exclusions
@@ -1221,7 +1236,7 @@ Check:
 Return STRICT JSON:
 
 {
-  "summary": "Exclusions and limitations review.",
+  "summary": "Exclusions and limitations review based on available documents.",
   "applicable_exclusions": [
     {
       "exclusion_type": "Type of exclusion",
@@ -1233,12 +1248,12 @@ Return STRICT JSON:
   "pre_existing_review": {
     "condition_identified": "Condition if any",
     "lookback_period": "Time period reviewed",
-    "determination": "Applies | Does Not Apply | Under Review"
+    "determination": "Applies | Does Not Apply | Under Review | Unknown"
   },
   "waiting_periods": {
     "applicable": true,
     "period": "Duration if applicable",
-    "status": "Satisfied | Not Satisfied | N/A"
+    "status": "Satisfied | Not Satisfied | N/A | Unknown"
   },
   "processing_action": "No exclusions apply | Apply exclusion | Request records | Medical review needed"
 }
@@ -1250,9 +1265,16 @@ You are an expert health insurance claims examiner reviewing claim lines.
 
 From the claim documents, evaluate each CLAIM LINE for processing.
 
+CRITICAL:
+- Use Billed Amounts from the claim form.
+- Use the provided "POLICY REFERENCE DATA" (if available) to determine the "Allowed Amount" for each CPT code from the "fee_schedule".
+- If the CPT code is in the fee_schedule, use that value.
+- If the CPT code is NOT in the fee_schedule, state "Unknown".
+- Do not calculate member liability without known deductible/coinsurance data.
+
 For each line item assess:
 - CPT/HCPCS code accuracy
-- Billed vs allowed amounts
+- Billed vs allowed amounts (using fee_schedule)
 - Modifier appropriateness
 - Bundle/unbundle issues
 
@@ -1261,16 +1283,16 @@ Return STRICT JSON:
 {
   "summary": "Overall claim line evaluation.",
   "total_billed": "Total billed amount",
-  "total_allowed": "Total allowed amount",
-  "total_plan_pays": "Plan liability",
-  "total_member_pays": "Member responsibility",
+  "total_allowed": "Total allowed amount (sum of line allowed amounts)",
+  "total_plan_pays": "Plan liability (or 'Unknown')",
+  "total_member_pays": "Member responsibility (or 'Unknown')",
   "claim_lines": [
     {
       "line_number": 1,
       "code": "CPT/HCPCS code",
       "description": "Service description",
       "billed": "Billed amount",
-      "allowed": "Allowed amount",
+      "allowed": "Allowed amount (from fee_schedule or 'Unknown')",
       "ai_opinion": "Approve | Deny | Review | Adjust",
       "adjustment_reason": "Reason if adjusting",
       "notes": "Processing notes"
@@ -1278,7 +1300,7 @@ Return STRICT JSON:
   ],
   "coding_issues": ["Any coding concerns identified"],
   "bundling_flags": ["Any bundling issues"],
-  "recommended_action": "Pay as submitted | Adjust and pay | Deny | Request documentation"
+  "recommended_action": "Pay as submitted | Adjust and pay | Deny | Request documentation | Pend for Fee Schedule"
 }
         """
     },
@@ -1287,6 +1309,10 @@ Return STRICT JSON:
 You are an expert health insurance claims adjudicator making a final determination.
 
 Based on all claim information reviewed, provide a FINAL DECISION recommendation.
+
+CRITICAL:
+- Do not fabricate payment amounts.
+- If benefits/pricing data is missing, the decision should be "Pend" or "Request Information".
 
 Consider:
 - Medical necessity determination
@@ -1303,9 +1329,9 @@ Return STRICT JSON:
   "decision_rationale": "Detailed explanation of the decision",
   "payment_summary": {
     "total_billed": "Amount billed",
-    "total_allowed": "Amount allowed",
-    "plan_pays": "Plan payment",
-    "member_pays": "Member responsibility",
+    "total_allowed": "Amount allowed (or 'Unknown')",
+    "plan_pays": "Plan payment (or 'Unknown')",
+    "member_pays": "Member responsibility (or 'Unknown')",
     "adjustment_amount": "Any adjustments"
   },
   "denial_reasons": ["If denying, list specific reasons"],

@@ -438,11 +438,18 @@ class AnalyzerCreateRequest(BaseModel):
 
 
 @app.get("/api/analyzer/status")
-async def get_analyzer_status():
-    """Get the current status of the custom analyzer."""
+async def get_analyzer_status(persona: Optional[str] = "underwriting"):
+    """Get the current status of the custom analyzer for the specified persona."""
     try:
         settings = load_settings()
-        custom_analyzer_id = settings.content_understanding.custom_analyzer_id
+        
+        # Get persona-specific analyzer ID
+        try:
+            persona_config = get_persona_config(persona)
+            custom_analyzer_id = persona_config.custom_analyzer_id
+        except ValueError:
+            # Fallback to default if persona not found
+            custom_analyzer_id = settings.content_understanding.custom_analyzer_id
         
         try:
             analyzer = get_analyzer(settings.content_understanding, custom_analyzer_id)
@@ -452,6 +459,7 @@ async def get_analyzer_status():
                 "analyzer": analyzer,
                 "confidence_scoring_enabled": settings.content_understanding.enable_confidence_scores,
                 "default_analyzer_id": settings.content_understanding.analyzer_id,
+                "persona": persona,
             }
         except (requests.exceptions.Timeout, requests.exceptions.ReadTimeout, requests.exceptions.ConnectTimeout) as timeout_err:
             logger.warning("Timeout checking analyzer status for %s: %s", custom_analyzer_id, timeout_err)
@@ -461,6 +469,7 @@ async def get_analyzer_status():
                 "analyzer": None,
                 "confidence_scoring_enabled": settings.content_understanding.enable_confidence_scores,
                 "default_analyzer_id": settings.content_understanding.analyzer_id,
+                "persona": persona,
                 "error": f"Request timeout ({timeout_err})",
             }
         except requests.exceptions.ConnectionError as conn_err:
@@ -471,6 +480,7 @@ async def get_analyzer_status():
                 "analyzer": None,
                 "confidence_scoring_enabled": settings.content_understanding.enable_confidence_scores,
                 "default_analyzer_id": settings.content_understanding.analyzer_id,
+                "persona": persona,
                 "error": "Cannot connect to Azure Content Understanding service",
             }
     except Exception as e:
@@ -500,9 +510,20 @@ async def create_custom_analyzer(request: AnalyzerCreateRequest = None):
     """Create or update the custom analyzer for confidence-scored extraction."""
     try:
         settings = load_settings()
-        analyzer_id = request.analyzer_id if request and request.analyzer_id else settings.content_understanding.custom_analyzer_id
-        persona_id = request.persona if request and request.persona else None
-        description = request.description if request and request.description else "Custom analyzer for document extraction with confidence scores"
+        persona_id = request.persona if request and request.persona else "underwriting"
+        
+        # Get the analyzer_id from persona config if not explicitly provided
+        if request and request.analyzer_id:
+            analyzer_id = request.analyzer_id
+        else:
+            try:
+                persona_config = get_persona_config(persona_id)
+                analyzer_id = persona_config.custom_analyzer_id
+            except ValueError:
+                # Fallback to default if persona not found
+                analyzer_id = settings.content_understanding.custom_analyzer_id
+        
+        description = request.description if request and request.description else f"Custom {persona_id} analyzer for document extraction with confidence scores"
         
         result = create_or_update_custom_analyzer(
             settings.content_understanding,

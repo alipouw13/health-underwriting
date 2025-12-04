@@ -122,7 +122,7 @@ export default function AdminPage() {
     setAnalyzerError(null);
     try {
       const [status, schema, list] = await Promise.all([
-        getAnalyzerStatus(),
+        getAnalyzerStatus(currentPersona),
         getAnalyzerSchema(currentPersona),
         listAnalyzers(),
       ]);
@@ -233,7 +233,7 @@ export default function AdminPage() {
       await runContentUnderstanding(app.id);
       setProcessing({
         step: 'analyzing',
-        message: 'Running underwriting analysis...',
+        message: 'Running analysis...',
         appId: app.id,
       });
 
@@ -273,7 +273,7 @@ export default function AdminPage() {
         await runContentUnderstanding(appId);
         setProcessing({
           step: 'analyzing',
-          message: 'Running underwriting analysis...',
+          message: 'Running analysis...',
           appId,
         });
         await runUnderwritingAnalysis(appId);

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict
 from typing import Any, Dict, List, Tuple
@@ -25,6 +26,18 @@ from .personas import get_persona_config
 from .utils import setup_logging
 
 logger = setup_logging()
+
+
+def load_policies(storage_root: str) -> Dict[str, Any]:
+    """Load policy definitions from JSON file."""
+    try:
+        policy_path = os.path.join(storage_root, "policies.json")
+        if os.path.exists(policy_path):
+            with open(policy_path, "r") as f:
+                return json.load(f)
+    except Exception as e:
+        logger.warning(f"Failed to load policies: {e}")
+    return {}
 
 
 def run_content_understanding_for_files(
@@ -153,9 +166,13 @@ def _run_single_prompt(
     subsection: str,
     prompt_template: str,
     document_markdown: str,
+    additional_context: str = "",
 ) -> Dict[str, Any]:
     system_prompt = "You are an expert life insurance underwriter. Always return STRICT JSON."
     user_prompt = prompt_template.strip() + "\n\n---\n\nApplication Markdown:\n\n" + document_markdown
+    
+    if additional_context:
+        user_prompt += additional_context
 
     messages = [
         {"role": "system", "content": system_prompt},
@@ -187,6 +204,7 @@ def _run_section_prompts(
     document_markdown: str,
     subsections_to_run: List[Tuple[str, str]] | None = None,
     max_workers: int = 4,
+    additional_context: str = "",
 ) -> Dict[str, Any]:
     """Run all prompts for a single section in parallel.
     
@@ -197,6 +215,7 @@ def _run_section_prompts(
         document_markdown: The document content to analyze
         subsections_to_run: Optional filter for specific subsections
         max_workers: Maximum parallel workers for this section
+        additional_context: Optional context to append to prompts
     
     Returns:
         Dict mapping subsection names to their results
@@ -223,6 +242,7 @@ def _run_section_prompts(
                 subsection,
                 template,
                 document_markdown,
+                additional_context,
             ): subsection
             for subsection, template in work_items
         }
@@ -310,6 +330,38 @@ def run_underwriting_prompts(
         app_md.id,
     )
 
+    # Load policies and determine context
+    policies = load_policies(settings.app.storage_root)
+    policy_context = ""
+    
+    if policies:
+        # Try to find plan name in extracted fields
+        plan_name = None
+        if app_md.extracted_fields:
+            for key, data in app_md.extracted_fields.items():
+                if "PlanName" in key or "plan_name" in key:
+                    val = data.get("value")
+                    if val and isinstance(val, str):
+                        plan_name = val
+                        break
+        
+        if plan_name:
+            # Try to match specific policy
+            matched_policy = None
+            for policy_name, details in policies.items():
+                if policy_name.lower() in plan_name.lower() or plan_name.lower() in policy_name.lower():
+                    matched_policy = details
+                    break
+            
+            if matched_policy:
+                policy_context = f"\n\n---\n\nPOLICY REFERENCE DATA (Use this for benefits/coverage):\n{json.dumps(matched_policy, indent=2)}\n"
+            else:
+                # If plan name found but no match, provide all as reference
+                policy_context = f"\n\n---\n\nAVAILABLE PLANS REFERENCE (Use if plan name matches):\n{json.dumps(policies, indent=2)}\n"
+        else:
+            # If no plan name found, provide all as reference
+            policy_context = f"\n\n---\n\nAVAILABLE PLANS REFERENCE (Use if plan name matches):\n{json.dumps(policies, indent=2)}\n"
+
     results: Dict[str, Dict[str, Any]] = {}
 
     # Run each section sequentially to avoid overwhelming the service
@@ -323,6 +375,7 @@ def run_underwriting_prompts(
             document_markdown=app_md.document_markdown,
             subsections_to_run=subsections_to_run,
             max_workers=max_workers_per_section,
+            additional_context=policy_context,
         )
         
         results[section] = section_results

@@ -41,18 +41,18 @@ function HeaderStrip({ application }: { application: ApplicationMetadata | null 
   const currentReserve = getFieldValue(extractedFields.CurrentReserve, '$5,000');
 
   return (
-    <div className="bg-gradient-to-r from-red-600 to-red-700 text-white px-5 py-2.5 flex-shrink-0">
+    <div className="bg-gradient-to-r from-indigo-600 to-indigo-700 text-white px-5 py-2.5 flex-shrink-0">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-6 text-sm">
-          <div><span className="text-red-200 text-xs">LOB:</span> <span className="font-medium">{lineOfBusiness}</span></div>
-          <div><span className="text-red-200 text-xs">Cause:</span> <span className="font-medium">{causeOfLoss}</span></div>
-          <div><span className="text-red-200 text-xs">Insured:</span> <span className="font-medium">{insuredName}</span></div>
+          <div><span className="text-indigo-200 text-xs">LOB:</span> <span className="font-medium">{lineOfBusiness}</span></div>
+          <div><span className="text-indigo-200 text-xs">Cause:</span> <span className="font-medium">{causeOfLoss}</span></div>
+          <div><span className="text-indigo-200 text-xs">Insured:</span> <span className="font-medium">{insuredName}</span></div>
         </div>
         <div className="flex items-center gap-5">
-          <div className="text-center"><div className="text-xs text-red-200">Paid Indemnity</div><div className="font-semibold">{paidIndemnity}</div></div>
-          <div className="text-center"><div className="text-xs text-red-200">Paid Expense</div><div className="font-semibold">{paidExpense}</div></div>
-          <div className="text-center"><div className="text-xs text-red-200">Total Incurred</div><div className="font-semibold text-amber-300">{totalIncurred}</div></div>
-          <div className="text-center"><div className="text-xs text-red-200">Reserve</div><div className="font-semibold">{currentReserve}</div></div>
+          <div className="text-center"><div className="text-xs text-indigo-200">Paid Indemnity</div><div className="font-semibold">{paidIndemnity}</div></div>
+          <div className="text-center"><div className="text-xs text-indigo-200">Paid Expense</div><div className="font-semibold">{paidExpense}</div></div>
+          <div className="text-center"><div className="text-xs text-indigo-200">Total Incurred</div><div className="font-semibold text-amber-300">{totalIncurred}</div></div>
+          <div className="text-center"><div className="text-xs text-indigo-200">Reserve</div><div className="font-semibold">{currentReserve}</div></div>
           <span className="px-2.5 py-1 bg-rose-800 rounded-full text-xs font-medium">High Severity</span>
         </div>
       </div>
@@ -111,9 +111,9 @@ export default function PropertyCasualtyClaimsOverview({ application }: Property
             {/* Liability Notes - 4 cols */}
             <div className="col-span-4 bg-white rounded-lg shadow-sm border border-slate-200 flex flex-col overflow-hidden">
               <div className="px-3 py-2 border-b border-slate-100 flex items-center gap-2 bg-slate-50 flex-shrink-0">
-                <Scale className="w-4 h-4 text-red-600" />
+                <Scale className="w-4 h-4 text-indigo-600" />
                 <span className="font-semibold text-slate-900 text-sm">Liability Notes</span>
-                <span className="ml-auto text-xs text-red-600 bg-red-50 px-1.5 py-0.5 rounded">AI</span>
+                <span className="ml-auto text-xs text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded">AI</span>
               </div>
               <div className="flex-1 overflow-auto p-3 text-sm">
                 <div className="space-y-2">
@@ -124,7 +124,7 @@ export default function PropertyCasualtyClaimsOverview({ application }: Property
                     <div className="px-3 py-2 flex items-center justify-between hover:bg-slate-50">
                       <div className="flex items-center gap-2">
                         <span className="font-medium text-slate-900">Liability Assessment</span>
-                        <span className="px-2 py-0.5 bg-red-100 text-red-700 text-xs rounded">80% Insured</span>
+                        <span className="px-2 py-0.5 bg-indigo-100 text-indigo-700 text-xs rounded">80% Insured</span>
                       </div>
                       {expandedSection === 'liability' ? <ChevronDown className="w-4 h-4 text-slate-400" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
                     </div>
@@ -172,7 +172,7 @@ export default function PropertyCasualtyClaimsOverview({ application }: Property
             {/* Damages - 4 cols */}
             <div className="col-span-4 bg-white rounded-lg shadow-sm border border-slate-200 flex flex-col overflow-hidden">
               <div className="px-3 py-2 border-b border-slate-100 flex items-center gap-2 bg-slate-50 flex-shrink-0">
-                <TrendingUp className="w-4 h-4 text-red-600" />
+                <TrendingUp className="w-4 h-4 text-indigo-600" />
                 <span className="font-semibold text-slate-900 text-sm">Damages</span>
               </div>
               <div className="flex-1 overflow-auto p-3 text-xs">
@@ -184,7 +184,7 @@ export default function PropertyCasualtyClaimsOverview({ application }: Property
                   </div>
                   <div className="pt-2 border-t">
                     <div className="text-slate-500 mb-1">Settlement Range</div>
-                    <div className="flex justify-between"><span className="text-slate-600">AI Estimate</span><span className="font-semibold text-red-600">$18K – $25K</span></div>
+                    <div className="flex justify-between"><span className="text-slate-600">AI Estimate</span><span className="font-semibold text-indigo-600">$18K – $25K</span></div>
                   </div>
                   <div className="pt-2 border-t">
                     <div className="text-emerald-700 font-medium">Strengths</div>
@@ -201,7 +201,7 @@ export default function PropertyCasualtyClaimsOverview({ application }: Property
             {/* Tasks - 4 cols */}
             <div className="col-span-4 bg-white rounded-lg shadow-sm border border-slate-200 flex flex-col overflow-hidden">
               <div className="px-3 py-2 border-b border-slate-100 flex items-center gap-2 bg-slate-50 flex-shrink-0">
-                <ListChecks className="w-4 h-4 text-red-600" />
+                <ListChecks className="w-4 h-4 text-indigo-600" />
                 <span className="font-semibold text-slate-900 text-sm">Tasks</span>
                 <span className="ml-auto text-xs text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded">{tasks.length - checkedTasks.length} pending</span>
               </div>
@@ -213,14 +213,14 @@ export default function PropertyCasualtyClaimsOverview({ application }: Property
                         type="checkbox" 
                         checked={checkedTasks.includes(i)} 
                         onChange={() => setCheckedTasks(prev => prev.includes(i) ? prev.filter(x => x !== i) : [...prev, i])}
-                        className="w-3.5 h-3.5 rounded border-slate-300 text-red-600" 
+                        className="w-3.5 h-3.5 rounded border-slate-300 text-indigo-600" 
                       />
                       <span className={clsx('flex-1', checkedTasks.includes(i) ? 'text-slate-400 line-through' : 'text-slate-900')}>{t.task}</span>
                       <span className="text-xs text-slate-400">{t.due}</span>
                     </label>
                   ))}
                 </div>
-                <button className="mt-3 w-full py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded-lg transition-colors">
+                <button className="mt-3 w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition-colors">
                   Generate Settlement Memo
                 </button>
               </div>
@@ -233,7 +233,7 @@ export default function PropertyCasualtyClaimsOverview({ application }: Property
             {/* Timeline - 6 cols */}
             <div className="col-span-6 bg-white rounded-lg shadow-sm border border-slate-200 flex flex-col overflow-hidden">
               <div className="px-3 py-2 border-b border-slate-100 flex items-center gap-2 bg-slate-50 flex-shrink-0">
-                <Activity className="w-4 h-4 text-red-600" />
+                <Activity className="w-4 h-4 text-indigo-600" />
                 <span className="font-semibold text-slate-900 text-sm">Timeline</span>
               </div>
               <div className="flex-1 overflow-auto p-3">
@@ -258,7 +258,7 @@ export default function PropertyCasualtyClaimsOverview({ application }: Property
             {/* Injuries - 6 cols */}
             <div className="col-span-6 bg-white rounded-lg shadow-sm border border-slate-200 flex flex-col overflow-hidden">
               <div className="px-3 py-2 border-b border-slate-100 flex items-center gap-2 bg-slate-50 flex-shrink-0">
-                <Users className="w-4 h-4 text-red-600" />
+                <Users className="w-4 h-4 text-indigo-600" />
                 <span className="font-semibold text-slate-900 text-sm">Injuries</span>
               </div>
               <div className="flex-1 overflow-auto p-3">
@@ -291,7 +291,7 @@ export default function PropertyCasualtyClaimsOverview({ application }: Property
           {/* ROW 3: Evidence Matrix - Full Width */}
           <div className="bg-white rounded-lg shadow-sm border border-slate-200 flex flex-col overflow-hidden" style={{ flex: '1 1 35%' }}>
             <div className="px-4 py-2.5 border-b border-slate-100 flex items-center gap-2 bg-slate-50 flex-shrink-0">
-              <FileText className="w-4 h-4 text-red-600" />
+              <FileText className="w-4 h-4 text-indigo-600" />
               <span className="font-semibold text-slate-900 text-sm">Evidence & Documents</span>
               <span className="ml-auto text-xs text-slate-500">{evidenceItems.length} items</span>
             </div>
@@ -313,7 +313,7 @@ export default function PropertyCasualtyClaimsOverview({ application }: Property
                       <td className="px-4 py-2.5 text-slate-900">{item.source}</td>
                       <td className="px-4 py-2.5">
                         <span className={clsx('px-2 py-0.5 rounded text-xs',
-                          item.type === 'Liability' ? 'bg-red-100 text-red-700' :
+                          item.type === 'Liability' ? 'bg-indigo-100 text-indigo-700' :
                           item.type === 'Injury' ? 'bg-blue-100 text-blue-700' :
                           'bg-purple-100 text-purple-700'
                         )}>{item.type}</span>
@@ -331,7 +331,7 @@ export default function PropertyCasualtyClaimsOverview({ application }: Property
                          'Vehicle damage consistent with rear-end collision'}
                       </td>
                       <td className="px-4 py-2.5 text-center">
-                        <button className="text-red-600 hover:text-red-700">
+                        <button className="text-indigo-600 hover:text-indigo-700">
                           <ExternalLink className="w-4 h-4 mx-auto" />
                         </button>
                       </td>
