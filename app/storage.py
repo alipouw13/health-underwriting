@@ -63,9 +63,6 @@ class ApplicationMetadata:
 # =============================================================================
 # Storage Provider Integration
 # =============================================================================
-# These functions delegate to the storage provider when initialized,
-# falling back to legacy local filesystem operations for backward compatibility.
-
 
 def _get_provider():
     """Get the storage provider if initialized, or None for legacy fallback."""
@@ -77,37 +74,39 @@ def _get_provider():
         return None
 
 
-def _metadata_to_dict(metadata: ApplicationMetadata) -> Dict[str, Any]:
-    """Convert ApplicationMetadata to a serializable dictionary."""
-    serializable = asdict(metadata)
-    serializable["files"] = [asdict(f) for f in metadata.files]
-    return serializable
-
-
-def _dict_to_metadata(data: Dict[str, Any]) -> ApplicationMetadata:
-    """Convert a dictionary to ApplicationMetadata."""
-    files = [StoredFile(**fd) for fd in data.get("files", [])]
-    return ApplicationMetadata(
-        id=data["id"],
-        created_at=data.get("created_at"),
-        external_reference=data.get("external_reference"),
-        status=data.get("status", "unknown"),
-        files=files,
-        persona=data.get("persona"),
-        document_markdown=data.get("document_markdown"),
-        markdown_pages=data.get("markdown_pages"),
-        cu_raw_result_path=data.get("cu_raw_result_path"),
-        llm_outputs=data.get("llm_outputs"),
-        extracted_fields=data.get("extracted_fields"),
-        confidence_summary=data.get("confidence_summary"),
-        analyzer_id_used=data.get("analyzer_id_used"),
-    )
+def load_file_content(stored_file: StoredFile) -> Optional[bytes]:
+    """Load file content from storage.
+    
+    This function handles both local filesystem and Azure Blob Storage.
+    It uses the storage provider if initialized, otherwise falls back to
+    reading directly from the filesystem path.
+    
+    Args:
+        stored_file: StoredFile object containing path information.
+        
+    Returns:
+        File content as bytes, or None if file not found.
+    """
+    provider = _get_provider()
+    
+    if provider:
+        # Use storage provider to load file
+        content = provider.load_file_by_path(stored_file.path)
+        if content is None:
+            logger.warning("File not found via provider: %s", stored_file.path)
+        return content
+    else:
+        # Legacy fallback: read directly from filesystem
+        path = Path(stored_file.path)
+        if not path.exists():
+            logger.warning("File not found on filesystem: %s", path)
+            return None
+        return path.read_bytes()
 
 
 # =============================================================================
-# Legacy Local Storage Helpers (used when provider not initialized)
+# Legacy Local Storage Helpers
 # =============================================================================
-
 
 def _ensure_dir(path: Path) -> None:
     path.mkdir(parents=True, exist_ok=True)
@@ -125,11 +124,6 @@ def get_application_dir(root: str, app_id: str) -> Path:
     return base
 
 
-# =============================================================================
-# Public API Functions (delegate to provider or legacy)
-# =============================================================================
-
-
 def save_uploaded_files(
     root: str,
     app_id: str,
@@ -142,9 +136,8 @@ def save_uploaded_files(
     Accepts dicts with 'name' and 'content' keys (from FastAPI after async read).
     """
     provider = _get_provider()
-    
     stored: List[StoredFile] = []
-    
+
     for f in uploaded_files:
         # Handle dict format from FastAPI (pre-read content)
         if isinstance(f, dict):
@@ -178,10 +171,7 @@ def save_uploaded_files(
 
 
 def save_cu_raw_result(root: str, app_id: str, payload: Dict[str, Any]) -> str:
-    """Save Content Understanding raw result JSON.
-    
-    Delegates to storage provider if initialized.
-    """
+    """Save Content Understanding raw result JSON."""
     provider = _get_provider()
     
     if provider:
@@ -195,28 +185,50 @@ def save_cu_raw_result(root: str, app_id: str, payload: Dict[str, Any]) -> str:
         return str(cu_path)
 
 
+def _metadata_to_dict(metadata: ApplicationMetadata) -> Dict[str, Any]:
+    """Convert ApplicationMetadata to a serializable dictionary."""
+    serializable = asdict(metadata)
+    serializable["files"] = [asdict(f) for f in metadata.files]
+    return serializable
+
+
+def _dict_to_metadata(data: Dict[str, Any]) -> ApplicationMetadata:
+    """Convert a dictionary to ApplicationMetadata."""
+    files = [StoredFile(**fd) for fd in data.get("files", [])]
+    return ApplicationMetadata(
+        id=data["id"],
+        created_at=data.get("created_at"),
+        external_reference=data.get("external_reference"),
+        status=data.get("status", "unknown"),
+        files=files,
+        persona=data.get("persona"),
+        document_markdown=data.get("document_markdown"),
+        markdown_pages=data.get("markdown_pages"),
+        cu_raw_result_path=data.get("cu_raw_result_path"),
+        llm_outputs=data.get("llm_outputs"),
+        extracted_fields=data.get("extracted_fields"),
+        confidence_summary=data.get("confidence_summary"),
+        analyzer_id_used=data.get("analyzer_id_used"),
+    )
+
+
 def save_application_metadata(root: str, metadata: ApplicationMetadata) -> None:
-    """Save application metadata.
-    
-    Delegates to storage provider if initialized.
-    """
+    """Save application metadata."""
     provider = _get_provider()
+    serializable = _metadata_to_dict(metadata)
     
     if provider:
-        provider.save_metadata(metadata.id, _metadata_to_dict(metadata))
+        provider.save_metadata(metadata.id, serializable)
     else:
         # Legacy local storage
         app_dir = get_application_dir(root, metadata.id)
         meta_path = app_dir / "metadata.json"
         with open(meta_path, "w", encoding="utf-8") as f:
-            json.dump(_metadata_to_dict(metadata), f, indent=2)
+            json.dump(serializable, f, indent=2)
 
 
 def load_application(root: str, app_id: str) -> Optional[ApplicationMetadata]:
-    """Load application metadata.
-    
-    Delegates to storage provider if initialized.
-    """
+    """Load application metadata."""
     provider = _get_provider()
     
     if provider:
@@ -236,27 +248,52 @@ def load_application(root: str, app_id: str) -> Optional[ApplicationMetadata]:
 
 
 def list_applications(root: str, persona: Optional[str] = None) -> List[Dict[str, Any]]:
-    """Return lightweight list of available applications, optionally filtered by persona.
+    """Return lightweight list of available applications, optionally filtered by persona."""
+    from app.personas import normalize_persona_id
     
-    Delegates to storage provider if initialized.
-    """
     provider = _get_provider()
     
+    # Normalize the filter persona (handles legacy 'claims' -> 'life_health_claims')
+    if persona is not None:
+        persona = normalize_persona_id(persona)
+
+    apps: List[Dict[str, Any]] = []
+    
     if provider:
-        return provider.list_applications(persona)
+        # Use storage provider
+        app_ids = provider.list_applications()
+        for app_id in app_ids:
+            data = provider.load_metadata(app_id)
+            if data is None:
+                continue
+            
+            # Filter by persona if specified
+            app_persona = data.get("persona") or "underwriting"
+            app_persona = normalize_persona_id(app_persona)
+            
+            if persona is not None and app_persona != persona:
+                continue
+            
+            apps.append(
+                {
+                    "id": data.get("id"),
+                    "created_at": data.get("created_at"),
+                    "external_reference": data.get("external_reference"),
+                    "status": data.get("status", "unknown"),
+                    "persona": app_persona,
+                    "summary_title": data.get("llm_outputs", {})
+                    .get("application_summary", {})
+                    .get("customer_profile", {})
+                    .get("summary", "")
+                    or "",
+                }
+            )
     else:
         # Legacy local storage
-        from app.personas import normalize_persona_id
-        
         base = get_storage_root(root) / "applications"
         if not base.exists():
             return []
 
-        # Normalize the filter persona (handles legacy 'claims' -> 'life_health_claims')
-        if persona is not None:
-            persona = normalize_persona_id(persona)
-
-        apps: List[Dict[str, Any]] = []
         for app_dir in sorted(base.iterdir()):
             if not app_dir.is_dir():
                 continue
@@ -289,9 +326,10 @@ def list_applications(root: str, persona: Optional[str] = None) -> List[Dict[str
                     or "",
                 }
             )
-        # Sort by created_at descending
-        apps.sort(key=lambda a: a.get("created_at") or "", reverse=True)
-        return apps
+    
+    # Sort by created_at descending
+    apps.sort(key=lambda a: a.get("created_at") or "", reverse=True)
+    return apps
 
 
 def new_metadata(
@@ -301,10 +339,6 @@ def new_metadata(
     external_reference: Optional[str] = None,
     persona: Optional[str] = None,
 ) -> ApplicationMetadata:
-    """Create new application metadata and save it.
-    
-    Delegates to storage provider if initialized.
-    """
     created_at = datetime.utcnow().isoformat() + "Z"
     md = ApplicationMetadata(
         id=app_id,

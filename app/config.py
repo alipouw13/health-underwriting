@@ -17,9 +17,6 @@ except Exception:
 # Import field schema from personas module for backward compatibility
 from app.personas import UNDERWRITING_FIELD_SCHEMA, get_field_schema, get_persona_config
 
-# Import storage types
-from app.storage_providers.base import StorageBackend, StorageSettings
-
 # Re-export for backward compatibility
 __all__ = ["UNDERWRITING_FIELD_SCHEMA", "get_field_schema", "get_persona_config"]
 
@@ -61,7 +58,6 @@ class Settings:
     content_understanding: ContentUnderstandingSettings
     openai: OpenAISettings
     app: AppSettings
-    storage: StorageSettings
 
 
 def load_settings() -> Settings:
@@ -93,25 +89,7 @@ def load_settings() -> Settings:
         public_files_base_url=os.getenv("PUBLIC_FILES_BASE_URL") or None,
     )
 
-    # Load storage configuration
-    backend_str = os.getenv("STORAGE_BACKEND", "local")
-    try:
-        storage_backend = StorageBackend.from_string(backend_str)
-    except ValueError:
-        # Will be caught by validate_settings; use local as fallback
-        storage_backend = StorageBackend.LOCAL
-    
-    storage = StorageSettings(
-        backend=storage_backend,
-        local_root=os.getenv("UW_APP_STORAGE_ROOT", "data"),
-        azure_account_name=os.getenv("AZURE_STORAGE_ACCOUNT_NAME") or None,
-        azure_account_key=os.getenv("AZURE_STORAGE_ACCOUNT_KEY") or None,
-        azure_container_name=os.getenv("AZURE_STORAGE_CONTAINER_NAME", "workbenchiq-data"),
-        azure_timeout_seconds=int(os.getenv("AZURE_STORAGE_TIMEOUT_SECONDS", "30")),
-        azure_retry_total=int(os.getenv("AZURE_STORAGE_RETRY_TOTAL", "3")),
-    )
-
-    return Settings(content_understanding=cu, openai=oa, app=app, storage=storage)
+    return Settings(content_understanding=cu, openai=oa, app=app)
 
 
 def validate_settings(settings: Settings) -> List[str]:
@@ -137,16 +115,5 @@ def validate_settings(settings: Settings) -> List[str]:
     # App
     if not settings.app.storage_root:
         errors.append("UW_APP_STORAGE_ROOT is not set or empty.")
-
-    # Storage - validate backend-specific requirements
-    storage_errors = settings.storage.validate()
-    errors.extend(storage_errors)
-    
-    # Validate STORAGE_BACKEND value
-    backend_str = os.getenv("STORAGE_BACKEND", "local")
-    try:
-        StorageBackend.from_string(backend_str)
-    except ValueError as e:
-        errors.append(str(e))
 
     return errors

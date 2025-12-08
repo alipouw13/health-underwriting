@@ -34,39 +34,26 @@ class LocalStorageProvider:
             public_base_url: Optional base URL for public file access.
         """
         self._settings = settings
-        self._storage_root = Path(settings.local_root)
-        self._public_base_url = public_base_url
+        # Resolve to absolute path to ensure file paths are always absolute
+        self._storage_root = Path(settings.local_root).resolve()
+        self._public_base_url = public_base_url or settings.public_base_url
         
         # Ensure storage root exists
         self._storage_root.mkdir(parents=True, exist_ok=True)
         
         logger.info(
             "Initialized Local Storage provider at '%s'",
-            self._storage_root.absolute()
+            self._storage_root
         )
     
     def _get_application_dir(self, app_id: str) -> Path:
-        """Get the directory path for an application.
-        
-        Args:
-            app_id: Application identifier.
-            
-        Returns:
-            Path to the application directory.
-        """
+        """Get the directory path for an application."""
         app_dir = self._storage_root / "applications" / app_id
         app_dir.mkdir(parents=True, exist_ok=True)
         return app_dir
     
     def _get_files_dir(self, app_id: str) -> Path:
-        """Get the files directory path for an application.
-        
-        Args:
-            app_id: Application identifier.
-            
-        Returns:
-            Path to the application's files directory.
-        """
+        """Get the files directory path for an application."""
         files_dir = self._get_application_dir(app_id) / "files"
         files_dir.mkdir(parents=True, exist_ok=True)
         return files_dir
@@ -74,13 +61,8 @@ class LocalStorageProvider:
     def save_file(self, app_id: str, filename: str, content: bytes) -> str:
         """Save a file to local filesystem.
         
-        Args:
-            app_id: Application identifier.
-            filename: Name of the file.
-            content: File content as bytes.
-            
         Returns:
-            Local file path where the file was saved.
+            Absolute file path where the file was saved.
         """
         files_dir = self._get_files_dir(app_id)
         file_path = files_dir / filename
@@ -92,163 +74,97 @@ class LocalStorageProvider:
         return str(file_path)
     
     def load_file(self, app_id: str, filename: str) -> Optional[bytes]:
-        """Load a file from local filesystem.
-        
-        Args:
-            app_id: Application identifier.
-            filename: Name of the file.
-            
-        Returns:
-            File content as bytes, or None if not found.
-        """
-        files_dir = self._get_files_dir(app_id)
-        file_path = files_dir / filename
+        """Load a file from local filesystem."""
+        file_path = self._get_files_dir(app_id) / filename
         
         if not file_path.exists():
-            logger.debug("File not found: %s", file_path)
+            logger.warning("File not found: %s", file_path)
             return None
         
-        with open(file_path, "rb") as f:
-            return f.read()
+        return file_path.read_bytes()
+    
+    def load_file_by_path(self, path: str) -> Optional[bytes]:
+        """Load file content by its stored path."""
+        file_path = Path(path)
+        
+        # If relative, resolve against storage root
+        if not file_path.is_absolute():
+            file_path = self._storage_root / path
+        
+        if not file_path.exists():
+            logger.warning("File not found at path: %s", file_path)
+            return None
+        
+        return file_path.read_bytes()
+    
+    def get_file_url(self, app_id: str, filename: str) -> Optional[str]:
+        """Get a public URL for a file, if available."""
+        if not self._public_base_url:
+            return None
+        return f"{self._public_base_url.rstrip('/')}/applications/{app_id}/files/{filename}"
     
     def save_metadata(self, app_id: str, metadata: Dict[str, Any]) -> None:
-        """Save application metadata JSON to local filesystem.
-        
-        Args:
-            app_id: Application identifier.
-            metadata: Metadata dictionary to save.
-        """
+        """Save application metadata."""
         app_dir = self._get_application_dir(app_id)
         meta_path = app_dir / "metadata.json"
         
         with open(meta_path, "w", encoding="utf-8") as f:
             json.dump(metadata, f, indent=2)
         
-        logger.debug("Saved metadata to local: %s", meta_path)
+        logger.debug("Saved metadata for app %s", app_id)
     
     def load_metadata(self, app_id: str) -> Optional[Dict[str, Any]]:
-        """Load application metadata from local filesystem.
-        
-        Args:
-            app_id: Application identifier.
-            
-        Returns:
-            Metadata dictionary, or None if not found.
-        """
-        app_dir = self._storage_root / "applications" / app_id
+        """Load application metadata."""
+        app_dir = self._get_application_dir(app_id)
         meta_path = app_dir / "metadata.json"
         
         if not meta_path.exists():
-            logger.debug("Metadata not found: %s", meta_path)
             return None
         
         with open(meta_path, "r", encoding="utf-8") as f:
             return json.load(f)
     
-    def list_applications(self, persona: Optional[str] = None) -> List[Dict[str, Any]]:
-        """List all applications from local filesystem, optionally filtered by persona.
-        
-        Args:
-            persona: Optional persona filter.
-            
-        Returns:
-            List of application summary dictionaries.
-        """
-        from app.personas import normalize_persona_id
-        
-        base = self._storage_root / "applications"
-        if not base.exists():
-            return []
-        
-        # Normalize the filter persona
-        if persona is not None:
-            persona = normalize_persona_id(persona)
-        
-        apps: List[Dict[str, Any]] = []
-        
-        for app_dir in sorted(base.iterdir()):
-            if not app_dir.is_dir():
-                continue
-            
-            meta_path = app_dir / "metadata.json"
-            if not meta_path.exists():
-                continue
-            
-            with open(meta_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            
-            # Filter by persona if specified
-            app_persona = data.get("persona") or "underwriting"
-            app_persona = normalize_persona_id(app_persona)
-            
-            if persona is not None and app_persona != persona:
-                continue
-            
-            apps.append({
-                "id": data.get("id"),
-                "created_at": data.get("created_at"),
-                "external_reference": data.get("external_reference"),
-                "status": data.get("status", "unknown"),
-                "persona": app_persona,
-                "summary_title": data.get("llm_outputs", {})
-                    .get("application_summary", {})
-                    .get("customer_profile", {})
-                    .get("summary", "") or "",
-            })
-        
-        # Sort by created_at descending
-        apps.sort(key=lambda a: a.get("created_at") or "", reverse=True)
-        return apps
-    
     def save_cu_result(self, app_id: str, payload: Dict[str, Any]) -> str:
-        """Save Content Understanding result JSON to local filesystem.
-        
-        Args:
-            app_id: Application identifier.
-            payload: Content Understanding result dictionary.
-            
-        Returns:
-            Local file path where the result was saved.
-        """
+        """Save Content Understanding result."""
         app_dir = self._get_application_dir(app_id)
         cu_path = app_dir / "content_understanding.json"
         
         with open(cu_path, "w", encoding="utf-8") as f:
             json.dump(payload, f, indent=2)
         
-        logger.debug("Saved CU result to local: %s", cu_path)
+        logger.debug("Saved CU result for app %s", app_id)
         return str(cu_path)
     
-    def application_exists(self, app_id: str) -> bool:
-        """Check if application exists in local filesystem.
+    def load_cu_result(self, app_id: str) -> Optional[Dict[str, Any]]:
+        """Load Content Understanding result."""
+        app_dir = self._get_application_dir(app_id)
+        cu_path = app_dir / "content_understanding.json"
         
-        Args:
-            app_id: Application identifier.
-            
-        Returns:
-            True if the application exists (has metadata), False otherwise.
-        """
-        app_dir = self._storage_root / "applications" / app_id
-        meta_path = app_dir / "metadata.json"
-        return meta_path.exists()
-    
-    def get_file_url(self, app_id: str, filename: str) -> Optional[str]:
-        """Get the public URL for a file, if available.
-        
-        Args:
-            app_id: Application identifier.
-            filename: Name of the file.
-            
-        Returns:
-            Public URL string, or None if not available.
-        """
-        files_dir = self._get_files_dir(app_id)
-        file_path = files_dir / filename
-        
-        if not file_path.exists():
+        if not cu_path.exists():
             return None
         
-        if self._public_base_url:
-            return f"{self._public_base_url.rstrip('/')}/applications/{app_id}/files/{filename}"
+        with open(cu_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    
+    def list_applications(self) -> List[str]:
+        """List all application IDs."""
+        apps_dir = self._storage_root / "applications"
+        if not apps_dir.exists():
+            return []
         
-        return None
+        return [
+            d.name for d in apps_dir.iterdir()
+            if d.is_dir() and (d / "metadata.json").exists()
+        ]
+    
+    def delete_application(self, app_id: str) -> bool:
+        """Delete an application and all its files."""
+        import shutil
+        
+        app_dir = self._storage_root / "applications" / app_id
+        if not app_dir.exists():
+            return False
+        
+        shutil.rmtree(app_dir)
+        logger.info("Deleted application %s", app_id)
+        return True
