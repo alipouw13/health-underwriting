@@ -384,7 +384,34 @@ Full API documentation available at http://localhost:8000/docs
 | `AZURE_OPENAI_API_KEY` | Yes | - | Azure OpenAI API key |
 | `AZURE_OPENAI_DEPLOYMENT_NAME` | Yes | - | GPT-4.1 deployment name |
 | `AZURE_OPENAI_API_VERSION` | No | `2024-10-21` | Azure OpenAI API version |
-| `UW_APP_STORAGE_ROOT` | No | `data` | Local storage path |
+| `STORAGE_BACKEND` | No | `local` | Storage backend: `local` or `azure_blob` |
+| `UW_APP_STORAGE_ROOT` | No | `data` | Local storage path (when using local backend) |
+
+### Azure Blob Storage Configuration
+
+WorkbenchIQ supports Azure Blob Storage as an alternative to local filesystem storage. This is recommended for production deployments.
+
+**Environment Variables for Azure Blob Storage:**
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `STORAGE_BACKEND` | No | `local` | Set to `azure_blob` to enable |
+| `AZURE_STORAGE_ACCOUNT_NAME` | If azure_blob | - | Azure Storage account name |
+| `AZURE_STORAGE_ACCOUNT_KEY` | If azure_blob | - | Azure Storage account access key |
+| `AZURE_STORAGE_CONTAINER_NAME` | No | `workbenchiq-data` | Blob container name |
+| `AZURE_STORAGE_TIMEOUT_SECONDS` | No | `30` | Per-operation timeout |
+| `AZURE_STORAGE_RETRY_TOTAL` | No | `3` | Maximum retry attempts |
+
+**Example Azure Blob Configuration:**
+
+```bash
+export STORAGE_BACKEND=azure_blob
+export AZURE_STORAGE_ACCOUNT_NAME=mystorageaccount
+export AZURE_STORAGE_ACCOUNT_KEY=your-storage-key
+export AZURE_STORAGE_CONTAINER_NAME=workbenchiq-data
+```
+
+The container will be created automatically if it doesn't exist.
 
 ### Adding a New Persona
 

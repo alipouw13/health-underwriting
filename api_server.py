@@ -24,6 +24,7 @@ from app.storage import (
     save_uploaded_files,
     ApplicationMetadata,
 )
+from app.storage_providers import get_storage_provider
 from app.processing import (
     run_content_understanding_for_files,
     run_underwriting_prompts,
@@ -59,6 +60,35 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.on_event("startup")
+async def startup_event():
+    """Initialize storage provider and validate configuration at startup."""
+    try:
+        settings = load_settings()
+        errors = validate_settings(settings)
+        
+        if errors:
+            # Log errors but don't crash - allow config status endpoint to report
+            for error in errors:
+                logger.error("Configuration error: %s", error)
+            logger.warning(
+                "Application started with %d configuration error(s). "
+                "Check /api/config/status for details.",
+                len(errors)
+            )
+        
+        # Initialize storage provider
+        provider = get_storage_provider(settings)
+        logger.info(
+            "Storage backend initialized: %s",
+            settings.storage.backend.value
+        )
+        
+    except Exception as e:
+        logger.error("Failed to initialize storage provider: %s", e, exc_info=True)
+        raise
 
 
 # Pydantic models for API responses
@@ -289,11 +319,13 @@ async def config_status():
         return {
             "valid": len(errors) == 0,
             "errors": errors,
+            "storage_backend": settings.storage.backend.value,
         }
     except Exception as e:
         return {
             "valid": False,
             "errors": [str(e)],
+            "storage_backend": "unknown",
         }
 
 
