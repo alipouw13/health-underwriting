@@ -51,12 +51,21 @@ app = FastAPI(
 )
 
 # Configure CORS for frontend access
+# In production, replace with your actual frontend domain(s)
+allowed_origins = [
+    "http://localhost:3000",  # Next.js dev server
+    "http://127.0.0.1:3000",
+]
+
+# Add Azure frontend URL from environment variable if configured
+import os
+azure_frontend_url = os.getenv("FRONTEND_URL")
+if azure_frontend_url:
+    allowed_origins.append(azure_frontend_url)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",  # Next.js dev server
-        "http://127.0.0.1:3000",
-    ],
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
