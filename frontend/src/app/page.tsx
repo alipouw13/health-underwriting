@@ -420,6 +420,7 @@ export default function Home() {
           onClose={() => setIsChatOpen(false)}
           onOpen={() => setIsChatOpen(true)}
           applicationId={selectedApp.id}
+          persona={currentPersona}
         />
       )}
     </div>

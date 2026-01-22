@@ -7,3 +7,4 @@ export { default as AutomotiveClaimsOverview } from './AutomotiveClaimsOverview'
 export { default as EvidenceGallery } from './EvidenceGallery';
 export { default as DamageViewer } from './DamageViewer';
 export { default as VideoTimeline } from './VideoTimeline';
+export { default as PDFViewer } from './PDFViewer';

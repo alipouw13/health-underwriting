@@ -730,16 +730,18 @@ class ClaimsMediaRepository:
     
     async def update_adjuster_decision(
         self,
-        application_id: str,
+        claim_id: str,
         decision: str,
+        approved_amount: Optional[float] = None,
         notes: Optional[str] = None,
     ) -> bool:
         """
         Update the adjuster's decision on a claim assessment.
         
         Args:
-            application_id: The application/claim identifier
+            claim_id: The claim/application identifier
             decision: The adjuster's decision (approve, deny, adjust, investigate)
+            approved_amount: Optional approved amount for the claim
             notes: Optional adjuster notes
             
         Returns:
@@ -751,20 +753,22 @@ class ClaimsMediaRepository:
                 UPDATE claim_assessments
                 SET adjuster_decision = $2,
                     adjuster_notes = $3,
+                    approved_amount = COALESCE($4, approved_amount),
                     decided_at = CURRENT_TIMESTAMP,
                     updated_at = CURRENT_TIMESTAMP
                 WHERE application_id = $1
                 """,
-                application_id,
+                claim_id,
                 decision,
                 notes,
+                approved_amount,
             )
             
             # Check if any rows were updated
             rows_affected = int(result.split()[-1]) if result else 0
             if rows_affected > 0:
                 logger.info(
-                    f"Updated adjuster decision for {application_id}: {decision}"
+                    f"Updated adjuster decision for {claim_id}: {decision}"
                 )
                 return True
             return False

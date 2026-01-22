@@ -216,13 +216,14 @@ export default function AdminPage() {
   // Load index stats when policies tab is active
   const loadIndexStats = useCallback(async () => {
     try {
-      const stats = await getIndexStats();
+      // Use unified persona-aware index stats
+      const stats = await getIndexStats(currentPersona);
       setIndexStats(stats);
     } catch {
       // Silently fail - stats are optional
       setIndexStats(null);
     }
-  }, []);
+  }, [currentPersona]);
 
   useEffect(() => {
     loadApplications();
@@ -616,19 +617,22 @@ export default function AdminPage() {
 
   // Handle reindexing all policies for RAG search
   const handleReindexPolicies = async () => {
-    if (!confirm('This will reindex all policies for RAG search. This may take a few minutes. Continue?')) return;
+    const policyType = isAutomotiveClaimsPersona ? 'claims' : isClaimsPersona ? 'claims' : 'underwriting';
+    if (!confirm(`This will reindex all ${policyType} policies for RAG search. This may take a few minutes. Continue?`)) return;
     
     setReindexing(true);
     setPoliciesError(null);
     
     try {
-      const result = await reindexAllPolicies(true);
+      // Use unified persona-aware reindex
+      const result = await reindexAllPolicies(true, currentPersona);
+        
       if (result.status === 'success') {
         setPoliciesSuccess(
           `Reindex complete: ${result.policies_indexed} policies, ${result.chunks_stored} chunks (${result.total_time_seconds}s)`
         );
-        // Refresh stats
-        const stats = await getIndexStats();
+        // Refresh stats using unified API
+        const stats = await getIndexStats(currentPersona);
         setIndexStats(stats);
       } else if (result.status === 'skipped') {
         setPoliciesError(result.error || 'Reindexing skipped - PostgreSQL not configured');
@@ -1461,20 +1465,18 @@ export default function AdminPage() {
           </div>
           {/* Action Buttons */}
           <div className="flex gap-2 mt-3">
-            {!isClaimsPersona && (
-              <button
-                onClick={handleReindexPolicies}
-                disabled={reindexing}
-                className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-sm font-medium border border-slate-300 text-slate-700 bg-white rounded-lg hover:bg-slate-50 hover:border-slate-400 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                title="Reindex all policies for RAG search"
-              >
-                <RefreshCw className={`w-4 h-4 ${reindexing ? 'animate-spin' : ''}`} />
-                {reindexing ? 'Indexing...' : 'Reindex'}
-              </button>
-            )}
+            <button
+              onClick={handleReindexPolicies}
+              disabled={reindexing}
+              className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-sm font-medium border border-slate-300 text-slate-700 bg-white rounded-lg hover:bg-slate-50 hover:border-slate-400 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              title="Reindex all policies for RAG search"
+            >
+              <RefreshCw className={`w-4 h-4 ${reindexing ? 'animate-spin' : ''}`} />
+              {reindexing ? 'Indexing...' : 'Reindex'}
+            </button>
             <button
               onClick={handleNewPolicyClick}
-              className={`inline-flex items-center justify-center gap-1.5 px-3 py-2 text-sm font-medium bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors ${isClaimsPersona ? 'flex-1' : 'flex-1'}`}
+              className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-sm font-medium bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
             >
               <Plus className="w-4 h-4" />
               New Policy
@@ -1482,12 +1484,12 @@ export default function AdminPage() {
           </div>
         </div>
 
-        {/* Index Stats - Only show for underwriting policies with RAG */}
-        {!isClaimsPersona && indexStats && indexStats.status === 'ok' && (
+        {/* Index Stats - Show for all personas with RAG support */}
+        {indexStats && indexStats.status === 'ok' && (
           <div className="px-5 py-3 bg-emerald-50 border-b border-emerald-100 flex items-center gap-2">
             <div className="w-2 h-2 rounded-full bg-emerald-500"></div>
             <span className="text-xs font-medium text-emerald-800">
-              RAG Index: {indexStats.total_chunks} chunks from {indexStats.policy_count} policies
+              RAG Index: {indexStats.total_chunks || indexStats.chunk_count || 0} chunks from {indexStats.policy_count} policies
             </span>
           </div>
         )}
@@ -1520,7 +1522,7 @@ export default function AdminPage() {
                   {isAutomotiveClaimsPersona ? (
                     <div className="text-xs text-slate-500 mt-0.5">
                       {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-                      {(policy as any).category || 'coverage'} • {(policy as any).severity_level || 'all'}
+                      {(policy as any).category || 'damage_assessment'} • {(policy as any).subcategory || 'general'}
                     </div>
                   ) : isClaimsPersona ? (
                     <div className="text-xs text-slate-500 mt-0.5">
@@ -1584,7 +1586,7 @@ export default function AdminPage() {
                       onChange={(e) => setClaimsPolicyFormData(prev => ({ ...prev, id: e.target.value }))}
                       disabled={!showNewPolicyForm}
                       className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm disabled:bg-slate-100 font-mono"
-                      placeholder="e.g., auto-cov-001"
+                      placeholder="e.g., DMG-SEV-001"
                     />
                   </div>
                   <div>
@@ -1594,7 +1596,7 @@ export default function AdminPage() {
                       value={claimsPolicyFormData.name || ''}
                       onChange={(e) => setClaimsPolicyFormData(prev => ({ ...prev, name: e.target.value }))}
                       className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
-                      placeholder="e.g., Collision Coverage"
+                      placeholder="e.g., Damage Severity Classification"
                     />
                   </div>
                 </div>
@@ -1603,31 +1605,29 @@ export default function AdminPage() {
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">Category</label>
                     <select
-                      value={claimsPolicyFormData.category || 'coverage'}
+                      value={claimsPolicyFormData.category || 'damage_assessment'}
                       onChange={(e) => setClaimsPolicyFormData(prev => ({ ...prev, category: e.target.value }))}
                       className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
                     >
+                      <option value="damage_assessment">Damage Assessment</option>
                       <option value="coverage">Coverage</option>
                       <option value="liability">Liability</option>
-                      <option value="damage_assessment">Damage Assessment</option>
                       <option value="fraud_detection">Fraud Detection</option>
                       <option value="payout_rules">Payout Rules</option>
                       <option value="repair_requirements">Repair Requirements</option>
+                      <option value="documentation">Documentation</option>
+                      <option value="total_loss">Total Loss</option>
                     </select>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Severity Level</label>
-                    <select
-                      value={claimsPolicyFormData.severity_level || 'all'}
-                      onChange={(e) => setClaimsPolicyFormData(prev => ({ ...prev, severity_level: e.target.value }))}
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Subcategory</label>
+                    <input
+                      type="text"
+                      value={claimsPolicyFormData.subcategory || ''}
+                      onChange={(e) => setClaimsPolicyFormData(prev => ({ ...prev, subcategory: e.target.value }))}
                       className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
-                    >
-                      <option value="all">All Severities</option>
-                      <option value="minor">Minor Only</option>
-                      <option value="moderate">Moderate Only</option>
-                      <option value="severe">Severe Only</option>
-                      <option value="total_loss">Total Loss Only</option>
-                    </select>
+                      placeholder="e.g., severity_rating, repair_costs"
+                    />
                   </div>
                 </div>
 
@@ -1641,89 +1641,186 @@ export default function AdminPage() {
                   />
                 </div>
 
+                {/* Criteria Section */}
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Policy Rule Text</label>
-                  <textarea
-                    value={claimsPolicyFormData.rule_text || ''}
-                    onChange={(e) => setClaimsPolicyFormData(prev => ({ ...prev, rule_text: e.target.value }))}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm h-32"
-                    placeholder="The full policy rule text that will be used for RAG retrieval and citation..."
-                  />
-                </div>
-
-                {/* Coverage Limits */}
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">Coverage Limits (if applicable)</label>
-                  <div className="grid grid-cols-3 gap-3">
-                    <div>
-                      <label className="block text-xs text-slate-500 mb-1">Min Amount ($)</label>
-                      <input
-                        type="number"
-                        value={claimsPolicyFormData.limits?.min_amount || ''}
-                        onChange={(e) => setClaimsPolicyFormData(prev => ({ 
-                          ...prev, 
-                          limits: { ...prev.limits, min_amount: Number(e.target.value) }
-                        }))}
-                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
-                        placeholder="0"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-slate-500 mb-1">Max Amount ($)</label>
-                      <input
-                        type="number"
-                        value={claimsPolicyFormData.limits?.max_amount || ''}
-                        onChange={(e) => setClaimsPolicyFormData(prev => ({ 
-                          ...prev, 
-                          limits: { ...prev.limits, max_amount: Number(e.target.value) }
-                        }))}
-                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
-                        placeholder="50000"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-slate-500 mb-1">Deductible ($)</label>
-                      <input
-                        type="number"
-                        value={claimsPolicyFormData.limits?.deductible || ''}
-                        onChange={(e) => setClaimsPolicyFormData(prev => ({ 
-                          ...prev, 
-                          limits: { ...prev.limits, deductible: Number(e.target.value) }
-                        }))}
-                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
-                        placeholder="500"
-                      />
-                    </div>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="block text-sm font-medium text-slate-700">Policy Criteria</label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const newCriteria = [...(claimsPolicyFormData.criteria || []), {
+                          id: `C${(claimsPolicyFormData.criteria?.length || 0) + 1}`,
+                          condition: '',
+                          severity: 'moderate',
+                          action: '',
+                          rationale: ''
+                        }];
+                        setClaimsPolicyFormData(prev => ({ ...prev, criteria: newCriteria }));
+                      }}
+                      className="text-xs text-indigo-600 hover:text-indigo-700 font-medium"
+                    >
+                      + Add Criterion
+                    </button>
+                  </div>
+                  <div className="space-y-3">
+                    {(claimsPolicyFormData.criteria || []).map((criterion: { id: string; condition: string; severity: string; action: string; rationale: string }, idx: number) => (
+                      <div key={idx} className="p-3 bg-slate-50 rounded-lg border border-slate-200 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-medium text-slate-500">Criterion {idx + 1}</span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const newCriteria = [...claimsPolicyFormData.criteria];
+                              newCriteria.splice(idx, 1);
+                              setClaimsPolicyFormData(prev => ({ ...prev, criteria: newCriteria }));
+                            }}
+                            className="text-xs text-rose-500 hover:text-rose-600"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <input
+                            type="text"
+                            value={criterion.id || ''}
+                            onChange={(e) => {
+                              const newCriteria = [...claimsPolicyFormData.criteria];
+                              newCriteria[idx] = { ...criterion, id: e.target.value };
+                              setClaimsPolicyFormData(prev => ({ ...prev, criteria: newCriteria }));
+                            }}
+                            className="px-2 py-1.5 border border-slate-300 rounded text-xs"
+                            placeholder="ID (e.g., C1)"
+                          />
+                          <select
+                            value={criterion.severity || 'moderate'}
+                            onChange={(e) => {
+                              const newCriteria = [...claimsPolicyFormData.criteria];
+                              newCriteria[idx] = { ...criterion, severity: e.target.value };
+                              setClaimsPolicyFormData(prev => ({ ...prev, criteria: newCriteria }));
+                            }}
+                            className="px-2 py-1.5 border border-slate-300 rounded text-xs"
+                          >
+                            <option value="minor">Minor</option>
+                            <option value="moderate">Moderate</option>
+                            <option value="major">Major</option>
+                            <option value="severe">Severe</option>
+                            <option value="total_loss">Total Loss</option>
+                          </select>
+                        </div>
+                        <input
+                          type="text"
+                          value={criterion.condition || ''}
+                          onChange={(e) => {
+                            const newCriteria = [...claimsPolicyFormData.criteria];
+                            newCriteria[idx] = { ...criterion, condition: e.target.value };
+                            setClaimsPolicyFormData(prev => ({ ...prev, criteria: newCriteria }));
+                          }}
+                          className="w-full px-2 py-1.5 border border-slate-300 rounded text-xs"
+                          placeholder="Condition (when does this apply)"
+                        />
+                        <input
+                          type="text"
+                          value={criterion.action || ''}
+                          onChange={(e) => {
+                            const newCriteria = [...claimsPolicyFormData.criteria];
+                            newCriteria[idx] = { ...criterion, action: e.target.value };
+                            setClaimsPolicyFormData(prev => ({ ...prev, criteria: newCriteria }));
+                          }}
+                          className="w-full px-2 py-1.5 border border-slate-300 rounded text-xs"
+                          placeholder="Action (what should be done)"
+                        />
+                        <input
+                          type="text"
+                          value={criterion.rationale || ''}
+                          onChange={(e) => {
+                            const newCriteria = [...claimsPolicyFormData.criteria];
+                            newCriteria[idx] = { ...criterion, rationale: e.target.value };
+                            setClaimsPolicyFormData(prev => ({ ...prev, criteria: newCriteria }));
+                          }}
+                          className="w-full px-2 py-1.5 border border-slate-300 rounded text-xs"
+                          placeholder="Rationale (why this applies)"
+                        />
+                      </div>
+                    ))}
+                    {(!claimsPolicyFormData.criteria || claimsPolicyFormData.criteria.length === 0) && (
+                      <p className="text-xs text-slate-400 italic">No criteria defined. Click &quot;Add Criterion&quot; to add one.</p>
+                    )}
                   </div>
                 </div>
 
-                {/* Fraud Indicators (for fraud detection policies) */}
-                {claimsPolicyFormData.category === 'fraud_detection' && (
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Fraud Indicators to Check</label>
-                    <textarea
-                      value={Array.isArray(claimsPolicyFormData.fraud_indicators) ? claimsPolicyFormData.fraud_indicators.join('\n') : ''}
-                      onChange={(e) => setClaimsPolicyFormData(prev => ({ 
-                        ...prev, 
-                        fraud_indicators: e.target.value.split('\n').filter(Boolean)
-                      }))}
-                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm h-24"
-                      placeholder="One indicator per line:&#10;Inconsistent damage patterns&#10;Staged accident indicators&#10;Prior claim history anomalies"
-                    />
-                  </div>
-                )}
-
-                {/* Required Documentation */}
+                {/* Modifying Factors Section */}
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Required Documentation</label>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="block text-sm font-medium text-slate-700">Modifying Factors</label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const newFactors = [...(claimsPolicyFormData.modifying_factors || []), {
+                          factor: '',
+                          impact: ''
+                        }];
+                        setClaimsPolicyFormData(prev => ({ ...prev, modifying_factors: newFactors }));
+                      }}
+                      className="text-xs text-indigo-600 hover:text-indigo-700 font-medium"
+                    >
+                      + Add Factor
+                    </button>
+                  </div>
+                  <div className="space-y-2">
+                    {(claimsPolicyFormData.modifying_factors || []).map((factor: { factor: string; impact: string }, idx: number) => (
+                      <div key={idx} className="flex gap-2 items-start">
+                        <input
+                          type="text"
+                          value={factor.factor || ''}
+                          onChange={(e) => {
+                            const newFactors = [...claimsPolicyFormData.modifying_factors];
+                            newFactors[idx] = { ...factor, factor: e.target.value };
+                            setClaimsPolicyFormData(prev => ({ ...prev, modifying_factors: newFactors }));
+                          }}
+                          className="flex-1 px-2 py-1.5 border border-slate-300 rounded text-xs"
+                          placeholder="Factor name"
+                        />
+                        <input
+                          type="text"
+                          value={factor.impact || ''}
+                          onChange={(e) => {
+                            const newFactors = [...claimsPolicyFormData.modifying_factors];
+                            newFactors[idx] = { ...factor, impact: e.target.value };
+                            setClaimsPolicyFormData(prev => ({ ...prev, modifying_factors: newFactors }));
+                          }}
+                          className="flex-1 px-2 py-1.5 border border-slate-300 rounded text-xs"
+                          placeholder="Impact description"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const newFactors = [...claimsPolicyFormData.modifying_factors];
+                            newFactors.splice(idx, 1);
+                            setClaimsPolicyFormData(prev => ({ ...prev, modifying_factors: newFactors }));
+                          }}
+                          className="text-rose-500 hover:text-rose-600 p-1"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                    {(!claimsPolicyFormData.modifying_factors || claimsPolicyFormData.modifying_factors.length === 0) && (
+                      <p className="text-xs text-slate-400 italic">No modifying factors. Click &quot;Add Factor&quot; to add one.</p>
+                    )}
+                  </div>
+                </div>
+
+                {/* References Section */}
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">References</label>
                   <textarea
-                    value={Array.isArray(claimsPolicyFormData.required_docs) ? claimsPolicyFormData.required_docs.join('\n') : ''}
+                    value={Array.isArray(claimsPolicyFormData.references) ? claimsPolicyFormData.references.join('\n') : ''}
                     onChange={(e) => setClaimsPolicyFormData(prev => ({ 
                       ...prev, 
-                      required_docs: e.target.value.split('\n').filter(Boolean)
+                      references: e.target.value.split('\n').filter(Boolean)
                     }))}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm h-20"
-                    placeholder="One document type per line:&#10;Photos of damage&#10;Police report&#10;Repair estimate"
+                    placeholder="One reference per line:&#10;NHTSA Guidelines Section 4.2&#10;Insurance Code 1234&#10;Industry Standard ISO-12345"
                   />
                 </div>
               </div>

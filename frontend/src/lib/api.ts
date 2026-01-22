@@ -754,17 +754,23 @@ export interface ReindexResponse {
 export interface IndexStats {
   status: string;
   total_chunks?: number;
+  chunk_count?: number;  // Alternative field name used by some endpoints
   policy_count?: number;
   chunks_by_type?: Record<string, number>;
   chunks_by_category?: Record<string, number>;
+  table?: string;
+  last_updated?: string;
+  message?: string;
   error?: string;
 }
 
 /**
- * Reindex all policies for RAG search
+ * Reindex all policies for RAG search (persona-aware)
+ * @param persona - The persona to reindex policies for (underwriting, life_health_claims, automotive_claims, property_casualty_claims)
+ * @param force - Whether to force delete existing chunks before reindexing
  */
-export async function reindexAllPolicies(force: boolean = true): Promise<ReindexResponse> {
-  return apiFetch<ReindexResponse>('/api/admin/policies/reindex', {
+export async function reindexAllPolicies(force: boolean = true, persona: string = 'underwriting'): Promise<ReindexResponse> {
+  return apiFetch<ReindexResponse>(`/api/admin/policies/reindex?persona=${encodeURIComponent(persona)}`, {
     method: 'POST',
     body: JSON.stringify({ force }),
   });
@@ -780,10 +786,29 @@ export async function reindexPolicy(policyId: string): Promise<ReindexResponse> 
 }
 
 /**
- * Get RAG index statistics
+ * Get RAG index statistics (persona-aware)
+ * @param persona - The persona to get index stats for
  */
-export async function getIndexStats(): Promise<IndexStats> {
-  return apiFetch<IndexStats>('/api/admin/policies/index-stats');
+export async function getIndexStats(persona: string = 'underwriting'): Promise<IndexStats> {
+  return apiFetch<IndexStats>(`/api/admin/policies/index-stats?persona=${encodeURIComponent(persona)}`);
+}
+
+// ============================================================================
+// Claims Policy Admin APIs (Deprecated - use reindexAllPolicies/getIndexStats with persona param)
+// ============================================================================
+
+/**
+ * @deprecated Use reindexAllPolicies(force, 'automotive_claims') instead
+ */
+export async function reindexClaimsPolicies(force: boolean = true): Promise<ReindexResponse> {
+  return reindexAllPolicies(force, 'automotive_claims');
+}
+
+/**
+ * @deprecated Use getIndexStats('automotive_claims') instead
+ */
+export async function getClaimsIndexStats(): Promise<IndexStats> {
+  return getIndexStats('automotive_claims');
 }
 
 // ============================================================================
@@ -995,9 +1020,11 @@ export interface ClaimsPolicySearchResult {
   policy_id: string;
   policy_name: string;
   category: string;
-  section: string;
   content: string;
-  score: number;
+  similarity?: number;  // From backend
+  score?: number;       // Legacy/alias
+  severity?: string;
+  criteria_id?: string;
 }
 
 export interface ClaimsPolicySearchResponse {
