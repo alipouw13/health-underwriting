@@ -62,11 +62,22 @@ class AzureBlobStorageProvider:
                 connection_timeout=settings.azure_timeout_seconds,
                 read_timeout=settings.azure_timeout_seconds,
             )
-        elif settings.azure_account_name and settings.azure_account_key:
+        elif settings.azure_account_name:
             account_url = f"https://{settings.azure_account_name}.blob.core.windows.net"
+            
+            # Use account key if provided, otherwise use Azure AD authentication
+            if settings.azure_account_key:
+                credential = settings.azure_account_key
+                logger.info("Using account key authentication for Azure Blob Storage")
+            else:
+                # Use DefaultAzureCredential for Azure AD authentication
+                from azure.identity import DefaultAzureCredential
+                credential = DefaultAzureCredential()
+                logger.info("Using Azure AD authentication for Azure Blob Storage")
+            
             self._blob_service = BlobServiceClient(
                 account_url=account_url,
-                credential=settings.azure_account_key,
+                credential=credential,
                 retry_policy=retry_policy,
                 connection_timeout=settings.azure_timeout_seconds,
                 read_timeout=settings.azure_timeout_seconds,
@@ -74,7 +85,7 @@ class AzureBlobStorageProvider:
         else:
             raise ValueError(
                 "Azure Blob Storage requires either AZURE_STORAGE_CONNECTION_STRING "
-                "or both AZURE_STORAGE_ACCOUNT_NAME and AZURE_STORAGE_ACCOUNT_KEY"
+                "or AZURE_STORAGE_ACCOUNT_NAME (with optional AZURE_STORAGE_ACCOUNT_KEY)"
             )
         
         # Get container client and ensure it exists
