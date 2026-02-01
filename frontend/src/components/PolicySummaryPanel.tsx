@@ -1,8 +1,9 @@
 'use client';
 
-import { useState } from 'react';
-import { Shield, FileText, AlertTriangle, CheckCircle, Clock, Play, Loader2, Sparkles } from 'lucide-react';
+import { useState, useRef, useEffect } from 'react';
+import { Shield, FileText, AlertTriangle, CheckCircle, Clock, Play, Loader2, Sparkles, Users } from 'lucide-react';
 import type { ApplicationMetadata, RiskFinding } from '@/lib/types';
+import AgentProgressTracker, { type AgentProgressEvent } from './agents/AgentProgressTracker';
 
 interface PolicySummaryPanelProps {
   application: ApplicationMetadata;
@@ -55,34 +56,93 @@ export default function PolicySummaryPanel({
 }: PolicySummaryPanelProps) {
   const [isRunningAnalysis, setIsRunningAnalysis] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [agentProgress, setAgentProgress] = useState<AgentProgressEvent[]>([]);
+  const eventSourceRef = useRef<EventSource | null>(null);
 
   const riskAnalysis = application.risk_analysis?.parsed;
   const hasRiskAnalysis = !!riskAnalysis;
 
+  // Check if agent execution is available
+  const hasAgentExecution = !!application.agent_execution;
+
+  // Cleanup EventSource on unmount
+  useEffect(() => {
+    return () => {
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
+      }
+    };
+  }, []);
+
   const handleRunRiskAnalysis = async () => {
+    // Close any existing EventSource
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close();
+    }
+
     setIsRunningAnalysis(true);
     setError(null);
+    setAgentProgress([]);
 
-    try {
-      const response = await fetch(`/api/applications/${application.id}/risk-analysis`, {
-        method: 'POST',
-      });
+    // Use the streaming endpoint with SSE for real-time progress
+    // Connect directly to backend (port 8000) to avoid Next.js proxy buffering SSE events
+    const url = `http://localhost:8000/api/applications/${application.id}/risk-analysis-stream`;
+    
+    console.log('[SSE] Connecting to:', url);
+    const eventSource = new EventSource(url);
+    eventSourceRef.current = eventSource;
 
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.detail || 'Failed to run risk analysis');
+    // Handle progress events - these come from each agent step
+    eventSource.addEventListener('progress', (event) => {
+      try {
+        const data: AgentProgressEvent = JSON.parse(event.data);
+        console.log('[AgentProgress] Received:', data.agent_id, data.status, data);
+        setAgentProgress(prev => [...prev, data]);
+      } catch (err) {
+        console.error('[AgentProgress] Failed to parse progress event:', err);
       }
+    });
 
+    // Handle result event - orchestration completed
+    eventSource.addEventListener('result', async () => {
+      eventSource.close();
+      setIsRunningAnalysis(false);
+      setAgentProgress([]);
+      
       // Trigger reload of application data
       if (onRiskAnalysisComplete) {
         onRiskAnalysisComplete();
       }
-    } catch (err) {
-      console.error('Risk analysis error:', err);
-      setError(err instanceof Error ? err.message : 'Failed to run risk analysis');
-    } finally {
+    });
+
+    // Handle server-sent error events
+    eventSource.addEventListener('error', (event: Event) => {
+      if (event instanceof MessageEvent && event.data) {
+        try {
+          const data = JSON.parse(event.data);
+          setError(data.error || 'Unknown error occurred');
+          eventSource.close();
+          setIsRunningAnalysis(false);
+          setAgentProgress([]);
+        } catch {
+          // Not JSON, ignore
+        }
+      }
+    });
+
+    // Handle connection errors
+    eventSource.onerror = (event) => {
+      // Only treat as error if we haven't received a result
+      if (eventSource.readyState === EventSource.CLOSED) {
+        // Normal close after completion, ignore
+        return;
+      }
+      console.error('SSE connection error:', event);
+      setError('Connection lost. Please try again.');
+      eventSource.close();
       setIsRunningAnalysis(false);
-    }
+      setAgentProgress([]);
+    };
   };
 
   // If no risk analysis, show the "Run Risk Analysis" prompt
@@ -99,54 +159,83 @@ export default function PolicySummaryPanel({
                 Policy Risk Analysis
               </h2>
               <p className="text-sm text-slate-500">
-                Run policy-based risk assessment
+                {isRunningAnalysis ? 'Multi-agent underwriting in progress' : 'Run multi-agent risk assessment'}
               </p>
             </div>
           </div>
         </div>
 
         <div className="px-6 py-6">
-          <div className="text-center">
-            <div className="w-16 h-16 rounded-full bg-indigo-100 flex items-center justify-center mx-auto mb-4">
-              <FileText className="w-8 h-8 text-indigo-600" />
-            </div>
-            <h3 className="text-lg font-medium text-slate-900 mb-2">
-              Risk Analysis Not Run
-            </h3>
-            <p className="text-sm text-slate-600 mb-6 max-w-sm mx-auto">
-              Run a comprehensive policy-based risk analysis to evaluate this application against underwriting guidelines.
-            </p>
-            
-            {error && (
-              <div className="mb-4 p-3 bg-rose-50 border border-rose-200 rounded-lg text-sm text-rose-700">
-                {error}
+          {/* Show agent progress when running */}
+          {isRunningAnalysis ? (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-sm text-blue-600 font-medium">
+                  <Users className="w-4 h-4" />
+                  <span>Multi-Agent Orchestration Running</span>
+                </div>
+                {/* Compact horizontal progress bar */}
+                <AgentProgressTracker progress={agentProgress} compact showTitle={false} />
               </div>
-            )}
-
-            <button
-              onClick={handleRunRiskAnalysis}
-              disabled={isRunningAnalysis || application.status !== 'completed'}
-              className="inline-flex items-center gap-2 px-6 py-3 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {isRunningAnalysis ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Running Analysis...
-                </>
+              {agentProgress.length > 0 ? (
+                <div className="text-xs text-slate-500">
+                  Step {Math.max(...agentProgress.map(p => p.step_number), 1)} of 3 agents processing...
+                </div>
               ) : (
-                <>
-                  <Play className="w-4 h-4" />
-                  Run Risk Analysis
-                </>
+                <div className="flex items-center gap-2">
+                  <Loader2 className="w-4 h-4 text-blue-500 animate-spin" />
+                  <span className="text-xs text-slate-500">Initializing agents...</span>
+                </div>
               )}
-            </button>
-
-            {application.status !== 'completed' && (
-              <p className="text-xs text-slate-500 mt-3">
-                Standard analysis must be completed first
+            </div>
+          ) : isRunningAnalysis ? (
+            <div className="flex flex-col items-center py-6">
+              <Loader2 className="w-10 h-10 text-blue-500 animate-spin mb-4" />
+              <p className="text-sm text-slate-600">Initializing agents...</p>
+            </div>
+          ) : (
+            <div className="text-center">
+              <div className="w-16 h-16 rounded-full bg-indigo-100 flex items-center justify-center mx-auto mb-4">
+                <FileText className="w-8 h-8 text-indigo-600" />
+              </div>
+              <h3 className="text-lg font-medium text-slate-900 mb-2">
+                Risk Analysis Not Run
+              </h3>
+              <p className="text-sm text-slate-600 mb-6 max-w-sm mx-auto">
+                Run a comprehensive multi-agent risk analysis to evaluate this application against underwriting guidelines.
               </p>
-            )}
-          </div>
+              
+              {error && (
+                <div className="mb-4 p-3 bg-rose-50 border border-rose-200 rounded-lg text-sm text-rose-700">
+                  {error}
+                </div>
+              )}
+
+              <button
+                onClick={handleRunRiskAnalysis}
+                disabled={isRunningAnalysis || application.status !== 'completed'}
+                className="inline-flex items-center gap-2 px-6 py-3 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isRunningAnalysis ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Running Analysis...
+                  </>
+                ) : (
+                  <>
+                    <Play className="w-4 h-4" />
+                    Run Risk Analysis
+                  </>
+                )}
+              </button>
+
+              {application.status !== 'completed' && (
+                <p className="text-xs text-slate-500 mt-3">
+                  Standard analysis must be completed first
+                </p>
+              )}
+            </div>
+          )}
         </div>
       </div>
     );

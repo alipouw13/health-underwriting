@@ -20,3 +20,9 @@ export {
   default as AgentTransparencyView,
   AgentTransparencyCompact,
 } from './AgentTransparencyView';
+export { 
+  default as AgentProgressTracker,
+  AgentProgressMini,
+  type AgentProgressEvent,
+  type AgentProgressStage,
+} from './AgentProgressTracker';

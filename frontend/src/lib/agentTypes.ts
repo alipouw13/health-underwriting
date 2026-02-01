@@ -17,6 +17,10 @@ export interface AgentExecutionRecord {
   execution_time_ms: number;
   success: boolean;
   output_summary: string;
+  // Actual data for transparency (optional for backwards compatibility)
+  actual_inputs?: Record<string, unknown>;
+  actual_outputs?: Record<string, unknown>;
+  tools_invoked?: string[];
 }
 
 // =============================================================================

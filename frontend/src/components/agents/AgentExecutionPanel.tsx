@@ -119,60 +119,84 @@ export default function AgentExecutionPanel({
             </div>
           </div>
 
+          {/* Actual Inputs (if available) or Schema */}
+          <div>
+            <h5 className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">
+              Inputs {record.actual_inputs ? '(Actual)' : '(Schema)'}
+            </h5>
+            {record.actual_inputs && Object.keys(record.actual_inputs).length > 0 ? (
+              <div className="bg-blue-50/50 rounded-lg p-3 border border-blue-100 max-h-64 overflow-y-auto">
+                <pre className="text-xs text-blue-800 whitespace-pre-wrap font-mono overflow-x-auto">
+                  {JSON.stringify(record.actual_inputs, null, 2)}
+                </pre>
+              </div>
+            ) : definition ? (
+              <div className="flex flex-wrap gap-2">
+                {Object.entries(definition.inputs).map(([key, type]) => (
+                  <span
+                    key={key}
+                    className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium bg-blue-50 text-blue-700 border border-blue-100"
+                  >
+                    {key}: <span className="text-blue-500 ml-1">{type}</span>
+                  </span>
+                ))}
+              </div>
+            ) : null}
+          </div>
+
+          {/* Tools Used (actual or schema) */}
+          <div>
+            <h5 className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2 flex items-center gap-1">
+              <Wrench className="w-3 h-3" />
+              Tools Used {record.tools_invoked ? '(Actual)' : '(Schema)'}
+            </h5>
+            <div className="flex flex-wrap gap-2">
+              {(record.tools_invoked && record.tools_invoked.length > 0 
+                ? record.tools_invoked 
+                : definition?.tools_used || []
+              ).map((tool) => (
+                <span
+                  key={tool}
+                  className={cn(
+                    "inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium border",
+                    record.tools_invoked 
+                      ? "bg-purple-100 text-purple-800 border-purple-200"  // Actual tools - more prominent
+                      : "bg-purple-50 text-purple-700 border-purple-100"
+                  )}
+                >
+                  {tool}
+                </span>
+              ))}
+            </div>
+          </div>
+
+          {/* Actual Outputs (if available) or Schema */}
+          <div>
+            <h5 className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">
+              Outputs {record.actual_outputs ? '(Actual)' : '(Schema)'}
+            </h5>
+            {record.actual_outputs && Object.keys(record.actual_outputs).length > 0 ? (
+              <div className="bg-emerald-50/50 rounded-lg p-3 border border-emerald-100">
+                <pre className="text-xs text-emerald-800 whitespace-pre-wrap font-mono overflow-x-auto max-h-64 overflow-y-auto">
+                  {JSON.stringify(record.actual_outputs, null, 2)}
+                </pre>
+              </div>
+            ) : definition ? (
+              <div className="flex flex-wrap gap-2">
+                {Object.entries(definition.outputs).map(([key, type]) => (
+                  <span
+                    key={key}
+                    className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-100"
+                  >
+                    {key}: <span className="text-emerald-500 ml-1">{type}</span>
+                  </span>
+                ))}
+              </div>
+            ) : null}
+          </div>
+
           {definition && (
             <>
-              {/* Inputs */}
-              <div>
-                <h5 className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">
-                  Inputs
-                </h5>
-                <div className="flex flex-wrap gap-2">
-                  {Object.entries(definition.inputs).map(([key, type]) => (
-                    <span
-                      key={key}
-                      className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium bg-blue-50 text-blue-700 border border-blue-100"
-                    >
-                      {key}: <span className="text-blue-500 ml-1">{type}</span>
-                    </span>
-                  ))}
-                </div>
-              </div>
-
-              {/* Tools Used */}
-              <div>
-                <h5 className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2 flex items-center gap-1">
-                  <Wrench className="w-3 h-3" />
-                  Tools Used
-                </h5>
-                <div className="flex flex-wrap gap-2">
-                  {definition.tools_used.map((tool) => (
-                    <span
-                      key={tool}
-                      className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium bg-purple-50 text-purple-700 border border-purple-100"
-                    >
-                      {tool}
-                    </span>
-                  ))}
-                </div>
-              </div>
-
-              {/* Outputs */}
-              <div>
-                <h5 className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">
-                  Outputs
-                </h5>
-                <div className="flex flex-wrap gap-2">
-                  {Object.entries(definition.outputs).map(([key, type]) => (
-                    <span
-                      key={key}
-                      className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-100"
-                    >
-                      {key}: <span className="text-emerald-500 ml-1">{type}</span>
-                    </span>
-                  ))}
-                </div>
-              </div>
-
               {/* Evaluation Criteria & Failure Modes */}
               <div className="grid grid-cols-2 gap-4 pt-2 border-t border-slate-100">
                 <div>

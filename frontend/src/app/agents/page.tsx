@@ -10,196 +10,10 @@ import {
   AlertCircle,
   FileText,
   RefreshCw,
-  CheckCircle2,
-  Clock,
-  XCircle,
 } from 'lucide-react';
 import AgentTransparencyView from '@/components/agents/AgentTransparencyView';
+import AgentProgressTracker, { type AgentProgressEvent } from '@/components/agents/AgentProgressTracker';
 import type { OrchestratorOutput } from '@/lib/agentTypes';
-
-interface Application {
-  id: string;
-  created_at: string;
-  persona: string;
-  status: string;
-  llm_outputs: Record<string, unknown> | null;
-  agent_execution: {
-    workflow_id: string;
-    orchestrator_output: OrchestratorOutput;
-  } | null;
-}
-
-// Granular progress stages within each agent (lowercase to match backend)
-type AgentProgressStage = 
-  | 'started'           // Agent execution initiated
-  | 'preparing_input'   // Building input payload
-  | 'invoking_model'    // Calling Azure AI Foundry
-  | 'tool_called'       // Agent is using a tool
-  | 'parsing_response'  // Processing agent response
-  | 'validating_output' // Validating output schema
-  | 'completed'         // Successfully finished
-  | 'failed';           // Error occurred
-
-interface AgentProgressEvent {
-  workflow_id: string;
-  agent_id: string;
-  agent_name: string;
-  step_number: number;
-  total_steps: number;
-  status: 'pending' | 'running' | 'completed' | 'failed' | 'tool_calling' | 'processing' | 'output_ready';
-  stage?: AgentProgressStage;
-  execution_time_ms?: number;
-  message?: string;
-  safe_summary?: string;
-  tools_used?: string[];
-  output_preview?: string;
-  timestamp?: string;
-}
-
-// Agent progress tracker component with granular stages
-function AgentProgressTracker({ progress }: { progress: AgentProgressEvent[] }) {
-  // Simplified 3-agent workflow (MVP)
-  const agents = [
-    { id: 'HealthDataAnalysisAgent', name: 'Health Data Analysis', description: 'Extracting risk indicators' },
-    { id: 'BusinessRulesValidationAgent', name: 'Business Rules & Premium', description: 'Applying underwriting rules' },
-    { id: 'CommunicationAgent', name: 'Decision Communication', description: 'Generating messages' },
-  ];
-
-  const getAgentStatus = (agentId: string): AgentProgressEvent | undefined => {
-    // Get the latest progress event for this agent
-    const events = progress.filter(p => p.agent_id === agentId);
-    return events.length > 0 ? events[events.length - 1] : undefined;
-  };
-
-  // Get user-friendly stage description
-  const getStageDescription = (stage?: AgentProgressStage, safeSummary?: string): string => {
-    if (safeSummary) return safeSummary;
-    switch (stage) {
-      case 'started': return 'Starting agent...';
-      case 'preparing_input': return 'Preparing input data...';
-      case 'invoking_model': return 'Calling AI model...';
-      case 'tool_called': return 'Using tools...';
-      case 'parsing_response': return 'Processing response...';
-      case 'validating_output': return 'Validating results...';
-      case 'completed': return 'Completed';
-      case 'failed': return 'Failed';
-      default: return 'Processing...';
-    }
-  };
-
-  // Determine if status is "active" (running, tool_calling, processing, output_ready)
-  const isActiveStatus = (status: string): boolean => {
-    return ['running', 'tool_calling', 'processing', 'output_ready'].includes(status);
-  };
-
-  return (
-    <div className="bg-white rounded-xl border border-slate-200 p-6 mb-8 shadow-sm">
-      <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500 mb-4">
-        Agent Execution Progress
-      </h3>
-      <div className="space-y-3">
-        {agents.map((agent, index) => {
-          const agentProgress = getAgentStatus(agent.id);
-          const status = agentProgress?.status || 'pending';
-          const executionTime = agentProgress?.execution_time_ms;
-          const isActive = isActiveStatus(status);
-
-          return (
-            <div 
-              key={agent.id}
-              className={`flex flex-col p-3 rounded-lg transition-all ${
-                isActive ? 'bg-blue-50 border border-blue-200' :
-                status === 'completed' ? 'bg-green-50 border border-green-200' :
-                status === 'failed' ? 'bg-red-50 border border-red-200' :
-                'bg-slate-50 border border-slate-200'
-              }`}
-            >
-              <div className="flex items-center gap-4">
-                {/* Step Number */}
-                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${
-                  isActive ? 'bg-blue-500 text-white' :
-                  status === 'completed' ? 'bg-green-500 text-white' :
-                  status === 'failed' ? 'bg-red-500 text-white' :
-                  'bg-slate-300 text-slate-600'
-                }`}>
-                  {index + 1}
-                </div>
-
-                {/* Status Icon */}
-                <div className="w-6 flex-shrink-0">
-                  {isActive && (
-                    <Loader2 className="w-5 h-5 text-blue-500 animate-spin" />
-                  )}
-                  {status === 'completed' && (
-                    <CheckCircle2 className="w-5 h-5 text-green-500" />
-                  )}
-                  {status === 'failed' && (
-                    <XCircle className="w-5 h-5 text-red-500" />
-                  )}
-                  {status === 'pending' && (
-                    <Clock className="w-5 h-5 text-slate-400" />
-                  )}
-                </div>
-
-                {/* Agent Name */}
-                <div className="flex-1">
-                  <div className={`font-medium ${
-                    isActive ? 'text-blue-700' :
-                    status === 'completed' ? 'text-green-700' :
-                    status === 'failed' ? 'text-red-700' :
-                    'text-slate-500'
-                  }`}>
-                    {agent.name}
-                  </div>
-                  {/* Stage description - shows what's happening right now */}
-                  {isActive && (
-                    <div className="text-xs text-blue-600 mt-0.5">
-                      {getStageDescription(agentProgress?.stage, agentProgress?.safe_summary)}
-                    </div>
-                  )}
-                  {status === 'failed' && agentProgress?.message && (
-                    <div className="text-xs text-red-600 mt-0.5">{agentProgress.message}</div>
-                  )}
-                </div>
-
-                {/* Execution Time - always in seconds */}
-                {executionTime !== undefined && status === 'completed' && (
-                  <div className="text-sm text-green-600 font-mono">
-                    {(executionTime / 1000).toFixed(1)}s
-                  </div>
-                )}
-              </div>
-
-              {/* Tools being used - show when agent is actively calling tools */}
-              {isActive && agentProgress?.tools_used && agentProgress.tools_used.length > 0 && (
-                <div className="mt-2 ml-14 pl-2 border-l-2 border-blue-200">
-                  <div className="text-xs text-blue-500 font-medium">Tools:</div>
-                  <div className="flex flex-wrap gap-1 mt-1">
-                    {agentProgress.tools_used.map((tool, i) => (
-                      <span key={i} className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded">
-                        {tool}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Output preview - show when output is ready but not yet completed */}
-              {agentProgress?.output_preview && (status === 'output_ready' || status === 'completed') && (
-                <div className="mt-2 ml-14 pl-2 border-l-2 border-green-200">
-                  <div className="text-xs text-green-600 font-medium">Output:</div>
-                  <div className="text-xs text-green-700 mt-0.5 bg-green-50 p-1.5 rounded">
-                    {agentProgress.output_preview}
-                  </div>
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
 
 interface Application {
   id: string;
@@ -316,14 +130,16 @@ export default function AgentsPage() {
     setIsStreaming(true);
 
     // Use the streaming endpoint with SSE
-    const url = `/api/applications/${selectedAppId}/risk-analysis-stream?use_demo=${useDemo}`;
+    // Connect directly to backend (port 8000) to avoid Next.js proxy buffering SSE events
+    const backendUrl = `http://localhost:8000/api/applications/${selectedAppId}/risk-analysis-stream?use_demo=${useDemo}`;
     
-    const eventSource = new EventSource(url);
+    console.log('[SSE] Connecting to:', backendUrl);
+    const eventSource = new EventSource(backendUrl);
     eventSourceRef.current = eventSource;
 
     // Debug: log when connection opens
     eventSource.onopen = () => {
-      console.log('SSE connection opened');
+      console.log('[SSE] Connection opened');
     };
 
     // Handle progress events

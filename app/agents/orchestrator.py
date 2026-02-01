@@ -193,6 +193,11 @@ class AgentExecutionRecord(AgentInput):
     execution_time_ms: float = Field(..., description="Execution time in ms")
     success: bool = Field(..., description="Whether execution succeeded")
     output_summary: str = Field(..., description="Brief summary of output")
+    
+    # Actual inputs/outputs for transparency
+    actual_inputs: Optional[Dict[str, Any]] = Field(default=None, description="Actual input data passed to agent")
+    actual_outputs: Optional[Dict[str, Any]] = Field(default=None, description="Actual output data from agent")
+    tools_invoked: Optional[List[str]] = Field(default=None, description="Tools/MCP servers actually called")
 
 
 class FinalDecision(AgentInput):
@@ -248,11 +253,21 @@ class ExecutionContext:
         self.document_markdown: Optional[str] = None
         self.llm_outputs: Optional[Dict[str, Any]] = None
     
-    def store_output(self, agent_id: str, output: AgentOutput, step_number: int) -> None:
-        """Store an agent's output in the context."""
+    def store_output(
+        self, 
+        agent_id: str, 
+        output: AgentOutput, 
+        step_number: int,
+        actual_inputs: Optional[Dict[str, Any]] = None,
+        tools_invoked: Optional[List[str]] = None
+    ) -> None:
+        """Store an agent's output in the context with actual inputs/outputs."""
         self._outputs[agent_id] = output
         
-        # Create execution record
+        # Extract actual output data from the AgentOutput model
+        actual_outputs = self._extract_output_data(agent_id, output)
+        
+        # Create execution record with actual data
         record = AgentExecutionRecord(
             agent_id=agent_id,
             step_number=step_number,
@@ -261,6 +276,9 @@ class ExecutionContext:
             execution_time_ms=output.execution_time_ms or 0.0,
             success=output.success,
             output_summary=self._summarize_output(agent_id, output),
+            actual_inputs=actual_inputs,
+            actual_outputs=actual_outputs,
+            tools_invoked=tools_invoked,
         )
         self._records.append(record)
         
@@ -294,6 +312,26 @@ class ExecutionContext:
             return "Messages generated"
         else:
             return "Output recorded"
+    
+    def _extract_output_data(self, agent_id: str, output: AgentOutput) -> Dict[str, Any]:
+        """Extract actual output data from agent output for transparency."""
+        try:
+            # Use model_dump to get all fields, excluding base execution fields
+            data = output.model_dump(exclude={'execution_id', 'timestamp', 'execution_time_ms', 'success', 'error_message'})
+            
+            # Truncate long strings for UI display
+            def truncate_strings(obj, max_len=500):
+                if isinstance(obj, str) and len(obj) > max_len:
+                    return obj[:max_len] + "..."
+                elif isinstance(obj, dict):
+                    return {k: truncate_strings(v, max_len) for k, v in obj.items()}
+                elif isinstance(obj, list):
+                    return [truncate_strings(item, max_len) for item in obj[:20]]  # Limit arrays to 20 items
+                return obj
+            
+            return truncate_strings(data)
+        except Exception:
+            return {"raw": str(output)[:500]}
 
 
 # =============================================================================
@@ -919,7 +957,15 @@ Return your response as JSON with this structure:
             # Use local deterministic agent
             output = await self._health_data_agent.run(input_data)
         
-        context.store_output("HealthDataAnalysisAgent", output, step_number=1)
+        # Store with actual inputs and tools used
+        tools_used = ["azure-ai-foundry"] if self._use_foundry else ["local-health-analyzer"]
+        context.store_output(
+            "HealthDataAnalysisAgent", 
+            output, 
+            step_number=1,
+            actual_inputs=input_data,
+            tools_invoked=tools_used
+        )
         return output
     
     def _parse_risk_indicators(self, indicators_data: list) -> List[RiskIndicator]:
@@ -1279,7 +1325,21 @@ Return your analysis as JSON:
             context._outputs["_triggered_rules"] = []
             context._outputs["_referral_required"] = adjustment_pct > 50
         
-        context.store_output("BusinessRulesValidationAgent", output, step_number=2)
+        # Capture actual inputs for transparency
+        actual_inputs = {
+            "risk_indicators_count": len(hda_output.risk_indicators),
+            "patient_age": patient_profile.demographics.age,
+            "smoker_status": patient_profile.medical_history.smoker_status,
+            "base_premium": base_premium,
+        }
+        tools_used = ["azure-ai-foundry"] if self._use_foundry else ["local-rules-engine"]
+        context.store_output(
+            "BusinessRulesValidationAgent", 
+            output, 
+            step_number=2,
+            actual_inputs=actual_inputs,
+            tools_invoked=tools_used
+        )
         return output
     
     async def _execute_bias_fairness(
@@ -1540,7 +1600,21 @@ Return JSON:
                 "decision_summary": decision_summary,
             })
         
-        context.store_output("CommunicationAgent", output, step_number=3)
+        # Capture actual inputs for transparency
+        actual_inputs = {
+            "risk_level": context._outputs.get("_risk_level", "unknown"),
+            "premium_adjustment_pct": context._outputs.get("_premium_adjustment_pct", 0),
+            "adjusted_premium": context._outputs.get("_adjusted_premium", 0),
+            "approved": brv_output.approved if brv_output else True,
+        }
+        tools_used = ["azure-ai-foundry"] if self._use_foundry else ["local-message-generator"]
+        context.store_output(
+            "CommunicationAgent", 
+            output, 
+            step_number=3,
+            actual_inputs=actual_inputs,
+            tools_invoked=tools_used
+        )
         return output
     
     async def _execute_audit_trace(

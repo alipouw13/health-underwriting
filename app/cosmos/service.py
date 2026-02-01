@@ -284,14 +284,19 @@ class CosmosAgentRunsService:
         # Load agent definitions from YAML
         yaml_data = self._load_agent_definitions_yaml()
         
-        # Create agent definition snapshots
+        # Get the list of agent IDs that were actually executed
+        execution_records = getattr(orchestrator_output, 'execution_records', [])
+        executed_agent_ids = {record.agent_id for record in execution_records}
+        
+        # Create agent definition snapshots ONLY for agents that were actually executed
         agent_definitions = []
         for agent_def in yaml_data.get("agents", []):
-            agent_definitions.append(self._create_agent_definition_snapshot(agent_def))
+            agent_id = agent_def.get("agent_id", "")
+            if agent_id in executed_agent_ids:
+                agent_definitions.append(self._create_agent_definition_snapshot(agent_def))
         
         # Build agent step records from orchestrator execution records
         agents: List[AgentStepRecord] = []
-        execution_records = getattr(orchestrator_output, 'execution_records', [])
         
         for record in execution_records:
             # Try to find detailed info if provided
@@ -341,8 +346,9 @@ class CosmosAgentRunsService:
                 completed_at=record.timestamp,  # Same as started for now
                 execution_duration_ms=record.execution_time_ms,
                 success=record.success,
-                inputs=step_detail.get('inputs', {}),
-                outputs=step_detail.get('outputs', {}),
+                # Use actual_inputs/outputs from record if available, else fall back to step_detail
+                inputs=getattr(record, 'actual_inputs', None) or step_detail.get('inputs', {}),
+                outputs=getattr(record, 'actual_outputs', None) or step_detail.get('outputs', {}),
                 output_summary=record.output_summary,
                 evaluation_results=evaluation_results,
                 token_usage=token_usage,
