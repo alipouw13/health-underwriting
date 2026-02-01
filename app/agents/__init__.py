@@ -55,7 +55,7 @@ from app.agents.data_quality_confidence import DataQualityConfidenceAgent
 from app.agents.bias_fairness import BiasAndFairnessAgent
 from app.agents.communication import CommunicationAgent
 from app.agents.audit_trace import AuditAndTraceAgent
-from app.agents.orchestrator import OrchestratorAgent
+from app.agents.orchestrator import OrchestratorAgent, AgentProgress, AgentProgressStatus, AgentProgressStage
 
 __all__ = [
     # Base classes
@@ -74,4 +74,8 @@ __all__ = [
     "AuditAndTraceAgent",
     # Orchestrator
     "OrchestratorAgent",
+    # Progress tracking
+    "AgentProgress",
+    "AgentProgressStatus",
+    "AgentProgressStage",
 ]

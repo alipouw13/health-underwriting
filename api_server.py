@@ -14,7 +14,7 @@ from typing import List, Optional
 import requests
 from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi.responses import JSONResponse, FileResponse, StreamingResponse
 from pydantic import BaseModel
 
 from app.config import load_settings, validate_settings
@@ -104,6 +104,57 @@ async def startup_event():
         except Exception as e:
             logger.error("Failed to initialize database pool: %s", e)
             raise
+    
+    # Check and deploy agents to Azure AI Foundry (if enabled)
+    if settings.agent.enabled:
+        try:
+            from app.agents.foundry_service import ensure_agents_deployed, get_foundry_service
+            
+            service = get_foundry_service()
+            if service.is_foundry_enabled():
+                logger.info("Checking Azure AI Foundry agent deployments...")
+                status = await ensure_agents_deployed()
+                
+                deployed_count = sum(1 for s in status.values() if s.deployed)
+                total_count = len(status)
+                
+                if deployed_count == total_count:
+                    logger.info(f"All {deployed_count} agents deployed in Azure AI Foundry")
+                else:
+                    logger.warning(
+                        f"Agent deployment: {deployed_count}/{total_count} agents deployed. "
+                        "Some agents may need manual deployment or Foundry may not be configured."
+                    )
+                    for agent_id, agent_status in status.items():
+                        if not agent_status.deployed:
+                            logger.warning(f"  - {agent_id}: {agent_status.error or 'Not deployed'}")
+            else:
+                logger.info(
+                    "Azure AI Foundry not configured (AZURE_AI_PROJECT_ENDPOINT not set). "
+                    "Agents will run locally with deterministic rules."
+                )
+        except Exception as e:
+            logger.warning(f"Agent deployment check failed: {e}. Continuing with local agent execution.")
+    
+    # Initialize Cosmos DB for agent observability (if configured)
+    if settings.agent.enabled:
+        try:
+            from app.cosmos import get_cosmos_service
+            
+            cosmos_service = await get_cosmos_service()
+            if cosmos_service.is_available:
+                logger.info(
+                    "Cosmos DB initialized for agent observability: "
+                    f"endpoint={cosmos_service.settings.endpoint[:50]}..., "
+                    f"database={cosmos_service.settings.database_name}"
+                )
+            else:
+                logger.info(
+                    "Cosmos DB not configured (AZURE_COSMOS_ENDPOINT not set). "
+                    "Agent execution persistence disabled."
+                )
+        except Exception as e:
+            logger.warning(f"Cosmos DB initialization failed (non-fatal): {e}. Agent runs will not be persisted.")
 
 
 # Pydantic models for API responses
@@ -174,6 +225,7 @@ def application_to_dict(app_md: ApplicationMetadata) -> dict:
         "confidence_summary": app_md.confidence_summary,
         "analyzer_id_used": app_md.analyzer_id_used,
         "risk_analysis": app_md.risk_analysis,
+        "agent_execution": app_md.agent_execution,  # Multi-agent workflow output for Agent Insights
         "processing_status": app_md.processing_status,
         "processing_error": app_md.processing_error,
     }
@@ -787,18 +839,25 @@ async def process_application(app_id: str):
 
 
 @app.post("/api/applications/{app_id}/risk-analysis")
-async def run_application_risk_analysis(app_id: str):
+async def run_application_risk_analysis(app_id: str, use_demo: bool = False):
     """Run policy-based risk analysis on an already-analyzed application.
     
-    This is a separate operation from extraction/summarization.
-    It applies underwriting policies to the extracted data and generates
-    a comprehensive risk assessment with policy citations.
+    This endpoint supports two execution modes controlled by AGENT_EXECUTION_ENABLED:
+    
+    - When AGENT_EXECUTION_ENABLED=false (default):
+      Executes the legacy single-call policy risk analysis
+      
+    - When AGENT_EXECUTION_ENABLED=true:
+      Executes the multi-agent underwriting workflow via OrchestratorAgent
+    
+    Query Parameters:
+    - use_demo: If true, forces local deterministic agents instead of Azure AI Foundry
     
     Prerequisites:
     - Application must have completed extraction and analysis
     - LLM outputs must be present
     """
-    from app.processing import run_risk_analysis
+    from app.processing import run_risk_analysis, convert_agent_output_to_legacy_format
     
     try:
         settings = load_settings()
@@ -818,23 +877,263 @@ async def run_application_risk_analysis(app_id: str):
                 detail="Risk analysis is only available for underwriting applications."
             )
 
-        # Run risk analysis in thread pool to avoid blocking event loop
-        risk_result = await asyncio.to_thread(
-            run_risk_analysis, settings, app_md
+        # Check if agent execution is enabled
+        agent_enabled = settings.agent.enabled
+        logger.info(
+            "Risk analysis requested for %s - AGENT_EXECUTION_ENABLED=%s",
+            app_id, agent_enabled
         )
         
-        logger.info("Risk analysis completed for application %s", app_id)
-        return {
-            "application_id": app_id,
-            "risk_analysis": risk_result,
-            "message": "Risk analysis completed successfully"
-        }
+        if agent_enabled:
+            # Execute multi-agent workflow
+            logger.info("=" * 60)
+            logger.info("REAL AGENT EXECUTION PATH USED")
+            logger.info("=" * 60)
+            logger.info("Executing multi-agent underwriting workflow for %s (demo_mode=%s)", app_id, use_demo)
+            
+            try:
+                from app.agents import OrchestratorAgent
+                
+                # Pass use_demo to force local agents instead of Foundry
+                orchestrator = OrchestratorAgent(use_demo=use_demo)
+                
+                # Pass real application data to the orchestrator
+                # This includes extracted fields, document markdown, and LLM analysis outputs
+                orchestrator_input = {
+                    "patient_id": app_id,
+                    "application_data": app_md.extracted_fields if hasattr(app_md, 'extracted_fields') else None,
+                    "document_markdown": app_md.document_markdown,
+                    "llm_outputs": app_md.llm_outputs,
+                }
+                
+                # FAIL FAST if no LLM outputs - cannot run agents without extracted data
+                if not app_md.llm_outputs:
+                    logger.error("AGENT EXECUTION ABORTED: No LLM outputs available for %s", app_id)
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Cannot run agent workflow: No extracted data available. Run document analysis first."
+                    )
+                
+                logger.info(
+                    "Running orchestrator with REAL application data for %s (has_llm_outputs=%s, has_markdown=%s)",
+                    app_id,
+                    app_md.llm_outputs is not None,
+                    app_md.document_markdown is not None,
+                )
+                
+                orchestrator_output = await orchestrator.run(orchestrator_input)
+                
+                # Convert agent output to legacy format for UI compatibility
+                risk_result = convert_agent_output_to_legacy_format(orchestrator_output, app_md)
+                
+                # Store the full orchestrator output for the Agent Insights page
+                app_md.agent_execution = {
+                    "workflow_id": orchestrator_output.workflow_id,
+                    "orchestrator_output": orchestrator_output.model_dump(mode='json'),
+                }
+                
+                # Also store in the standard risk_analysis field
+                app_md.risk_analysis = risk_result
+                save_application_metadata(settings.app.storage_root, app_md)
+                
+                logger.info(
+                    "Agent execution completed for %s - workflow_id=%s, agents=%d, time=%.2fms",
+                    app_id,
+                    orchestrator_output.workflow_id,
+                    len(orchestrator_output.execution_records),
+                    orchestrator_output.total_execution_time_ms
+                )
+                
+                return {
+                    "application_id": app_id,
+                    "risk_analysis": risk_result,
+                    "message": "Risk analysis completed successfully (agent execution)",
+                    "execution_mode": "agent",
+                    "workflow_id": orchestrator_output.workflow_id,
+                }
+                
+            except Exception as agent_err:
+                logger.error(
+                    "Agent execution failed for %s: %s",
+                    app_id, agent_err, exc_info=True
+                )
+                # Do NOT fall back to legacy - fail explicitly as per requirements
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Agent execution failed: {str(agent_err)}. Agent workflow did not complete successfully."
+                )
+        
+        else:
+            # Execute legacy single-call risk analysis
+            logger.info("Executing legacy risk analysis for %s", app_id)
+            
+            risk_result = await asyncio.to_thread(
+                run_risk_analysis, settings, app_md
+            )
+            
+            logger.info("Legacy risk analysis completed for application %s", app_id)
+            return {
+                "application_id": app_id,
+                "risk_analysis": risk_result,
+                "message": "Risk analysis completed successfully",
+                "execution_mode": "legacy",
+            }
 
     except HTTPException:
         raise
     except Exception as e:
         logger.error("Risk analysis failed for %s: %s", app_id, e, exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/applications/{app_id}/risk-analysis-stream")
+async def run_application_risk_analysis_stream(app_id: str, use_demo: bool = False):
+    """Run policy-based risk analysis with real-time progress streaming (SSE).
+    
+    This endpoint streams Server-Sent Events (SSE) showing agent execution progress
+    in real-time. Each event contains:
+    - type: "progress" | "result" | "error"
+    - data: AgentProgress or OrchestratorOutput JSON
+    
+    Query Parameters:
+    - use_demo: If true, forces local deterministic agents instead of Azure AI Foundry
+    
+    Cosmos DB Persistence:
+    - When AGENT_EXECUTION_ENABLED=true, agent runs are persisted to Cosmos DB
+    - Persistence happens AFTER orchestration completes successfully
+    - Persistence failures do NOT affect the main execution flow
+    """
+    import json
+    from app.processing import convert_agent_output_to_legacy_format
+    from app.agents import OrchestratorAgent, AgentProgress
+    from app.agents.orchestrator import OrchestratorOutput
+    
+    async def generate_events():
+        """Generate SSE events as agents execute."""
+        try:
+            settings = load_settings()
+            app_md = load_application(settings.app.storage_root, app_id)
+            
+            if not app_md:
+                yield f"event: error\ndata: {json.dumps({'error': 'Application not found'})}\n\n"
+                return
+            
+            if not app_md.llm_outputs:
+                yield f"event: error\ndata: {json.dumps({'error': 'No analysis outputs found. Run standard analysis first.'})}\n\n"
+                return
+            
+            if app_md.persona != "underwriting":
+                yield f"event: error\ndata: {json.dumps({'error': 'Risk analysis is only available for underwriting applications.'})}\n\n"
+                return
+            
+            # Check if agent execution is enabled
+            agent_enabled = settings.agent.enabled
+            if not agent_enabled:
+                yield f"event: error\ndata: {json.dumps({'error': 'Agent execution is not enabled. Set AGENT_EXECUTION_ENABLED=true.'})}\n\n"
+                return
+            
+            logger.info("Starting streaming agent execution for %s (demo_mode=%s)", app_id, use_demo)
+            
+            orchestrator = OrchestratorAgent(use_demo=use_demo)
+            orchestrator_input = {
+                "patient_id": app_id,
+                "application_data": app_md.extracted_fields if hasattr(app_md, 'extracted_fields') else None,
+                "document_markdown": app_md.document_markdown,
+                "llm_outputs": app_md.llm_outputs,
+            }
+            
+            orchestrator_output = None
+            
+            # Stream progress events as agents execute
+            async for event in orchestrator.run_with_progress(orchestrator_input):
+                if isinstance(event, AgentProgress):
+                    # Emit progress event
+                    event_data = f"event: progress\ndata: {json.dumps(event.to_dict())}\n\n"
+                    logger.debug("Sending SSE progress: %s - %s", event.agent_id, event.status)
+                    yield event_data
+                    # Force flush by yielding control
+                    await asyncio.sleep(0)
+                elif isinstance(event, OrchestratorOutput):
+                    # Final output
+                    orchestrator_output = event
+            
+            if orchestrator_output:
+                # Convert to legacy format and save
+                risk_result = convert_agent_output_to_legacy_format(orchestrator_output, app_md)
+                
+                app_md.agent_execution = {
+                    "workflow_id": orchestrator_output.workflow_id,
+                    "orchestrator_output": orchestrator_output.model_dump(mode='json'),
+                }
+                app_md.risk_analysis = risk_result
+                save_application_metadata(settings.app.storage_root, app_md)
+                
+                # ============================================================
+                # COSMOS DB PERSISTENCE (append-only, non-blocking)
+                # Persist agent run to Cosmos DB when AGENT_EXECUTION_ENABLED=true
+                # This happens AFTER orchestration completes and NEVER blocks execution
+                # ============================================================
+                if settings.agent.enabled:
+                    logger.info("Attempting to persist agent run to Cosmos DB...")
+                    try:
+                        from app.cosmos import get_cosmos_service
+                        
+                        cosmos_service = await get_cosmos_service()
+                        logger.debug(f"Cosmos service retrieved - is_available={cosmos_service.is_available}")
+                        if cosmos_service.is_available:
+                            run_document = await cosmos_service.create_run_document_from_orchestrator_output(
+                                application_id=app_id,
+                                orchestrator_output=orchestrator_output,
+                            )
+                            logger.debug(f"Created run document: run_id={run_document.run_id}, id={run_document.id}")
+                            save_result = await cosmos_service.save_agent_run(run_document)
+                            if save_result:
+                                logger.info(
+                                    "Agent run persisted to Cosmos DB: run_id=%s, workflow_id=%s",
+                                    run_document.run_id,
+                                    orchestrator_output.workflow_id
+                                )
+                            else:
+                                logger.warning("Failed to save agent run to Cosmos DB (save_result=False)")
+                        else:
+                            logger.info("Cosmos DB not available (is_available=False), skipping agent run persistence")
+                    except Exception as cosmos_err:
+                        # CRITICAL: Never let Cosmos errors affect the main execution
+                        logger.warning(
+                            "Failed to persist agent run to Cosmos DB (non-fatal): %s",
+                            cosmos_err
+                        )
+                
+                # Emit result event with full output
+                result_data = {
+                    "application_id": app_id,
+                    "risk_analysis": risk_result,
+                    "workflow_id": orchestrator_output.workflow_id,
+                    "total_execution_time_ms": orchestrator_output.total_execution_time_ms,
+                    "execution_records": [r.model_dump(mode='json') for r in orchestrator_output.execution_records],
+                }
+                yield f"event: result\ndata: {json.dumps(result_data, default=str)}\n\n"
+                
+                logger.info(
+                    "Streaming agent execution completed for %s - workflow_id=%s, time=%.2fms",
+                    app_id,
+                    orchestrator_output.workflow_id,
+                    orchestrator_output.total_execution_time_ms
+                )
+            
+        except Exception as e:
+            logger.error("Streaming agent execution failed for %s: %s", app_id, e, exc_info=True)
+            yield f"event: error\ndata: {json.dumps({'error': str(e)})}\n\n"
+    
+    return StreamingResponse(
+        generate_events(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        }
+    )
 
 
 @app.get("/api/applications/{app_id}/risk-analysis")
@@ -878,6 +1177,28 @@ async def config_status():
         return {
             "valid": False,
             "errors": [str(e)],
+        }
+
+
+@app.get("/api/config/features")
+async def get_feature_flags():
+    """Get feature flags for the application.
+    
+    Returns configuration flags that control UI behavior and feature visibility.
+    """
+    try:
+        settings = load_settings()
+        return {
+            "agent_execution_enabled": settings.agent.enabled,
+            "rag_enabled": settings.rag.enabled,
+            "automotive_claims_enabled": settings.automotive_claims.enabled,
+        }
+    except Exception as e:
+        logger.error("Failed to get feature flags: %s", e)
+        return {
+            "agent_execution_enabled": False,
+            "rag_enabled": False,
+            "automotive_claims_enabled": False,
         }
 
 
@@ -2299,6 +2620,175 @@ async def get_claims_index_stats():
     """
     # Redirect to unified endpoint
     return await get_index_stats(persona="automotive_claims")
+
+
+# ============================================================================
+# Agent Orchestration APIs
+# ============================================================================
+
+class OrchestrateRequest(BaseModel):
+    """Request model for orchestration."""
+    patient_id: str
+
+
+@app.post("/api/orchestrate")
+async def run_orchestration(request: OrchestrateRequest):
+    """
+    Run the multi-agent orchestration workflow for a patient.
+    
+    This endpoint:
+    1. Accepts a patient_id
+    2. Runs the OrchestratorAgent which coordinates all 7 underwriting agents
+    3. Returns the full orchestration output for UI transparency
+    
+    Execution Order (STRICT):
+        1. HealthDataAnalysisAgent
+        2. DataQualityConfidenceAgent
+        3. PolicyRiskAgent
+        4. BusinessRulesValidationAgent
+        5. BiasAndFairnessAgent
+        6. CommunicationAgent
+        7. AuditAndTraceAgent
+    
+    Returns:
+        OrchestratorOutput including final_decision, confidence_score, 
+        explanation, and execution_records for each agent.
+    """
+    try:
+        from app.agents import OrchestratorAgent
+        
+        orchestrator = OrchestratorAgent()
+        result = await orchestrator.run({"patient_id": request.patient_id})
+        
+        # Convert Pydantic models to dict for JSON serialization
+        return result.model_dump(mode='json')
+    except Exception as e:
+        logger.error(f"Orchestration failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Orchestration failed: {str(e)}")
+
+
+@app.get("/api/orchestrate/patients")
+async def list_demo_patients():
+    """
+    List available demo patients for orchestration.
+    
+    Returns patient IDs that can be used with the orchestration endpoint.
+    """
+    try:
+        from data.mock.fixtures import get_patient_profiles
+        
+        profiles = get_patient_profiles()
+        patients = [
+            {
+                "id": p.patient_id,
+                "label": f"Patient {p.patient_id[-3:]}",
+                "risk_profile": "healthy" if "HEALTHY" in p.patient_id else 
+                               "moderate" if "MODERATE" in p.patient_id else "high"
+            }
+            for p in profiles
+        ]
+        return {"patients": patients}
+    except Exception as e:
+        logger.warning(f"Could not load patient profiles: {e}")
+        # Return default demo patients
+        return {
+            "patients": [
+                {"id": "PAT-HEALTHY-001", "label": "Healthy Patient", "risk_profile": "healthy"},
+                {"id": "PAT-MODERATE-001", "label": "Moderate Risk", "risk_profile": "moderate"},
+                {"id": "PAT-HIGH-RISK-001", "label": "High Risk", "risk_profile": "high"},
+            ]
+        }
+
+
+@app.get("/api/agents/status")
+async def get_agent_deployment_status():
+    """
+    Get the deployment status of all underwriting agents in Azure AI Foundry.
+    
+    Returns:
+        - foundry_enabled: Whether Azure AI Foundry is configured
+        - agents: List of agent deployment statuses
+    """
+    try:
+        from app.agents.foundry_service import get_foundry_service
+        
+        service = get_foundry_service()
+        
+        if not service.is_foundry_enabled():
+            return {
+                "foundry_enabled": False,
+                "message": "Azure AI Foundry not configured. Agents run locally with deterministic rules.",
+                "agents": [],
+            }
+        
+        status = await service.check_agents_deployed()
+        
+        return {
+            "foundry_enabled": True,
+            "agents": [
+                {
+                    "agent_id": s.agent_id,
+                    "deployed": s.deployed,
+                    "foundry_id": s.foundry_id,
+                    "error": s.error,
+                }
+                for s in status.values()
+            ]
+        }
+    except Exception as e:
+        logger.error(f"Failed to check agent status: {e}", exc_info=True)
+        return {
+            "foundry_enabled": False,
+            "error": str(e),
+            "agents": [],
+        }
+
+
+@app.post("/api/agents/deploy")
+async def deploy_agents():
+    """
+    Deploy all underwriting agents to Azure AI Foundry.
+    
+    This will:
+    1. Check which agents are already deployed
+    2. Deploy any missing agents
+    3. Return the deployment status
+    """
+    try:
+        from app.agents.foundry_service import ensure_agents_deployed, get_foundry_service
+        
+        service = get_foundry_service()
+        
+        if not service.is_foundry_enabled():
+            raise HTTPException(
+                status_code=400, 
+                detail="Azure AI Foundry not configured. Set AZURE_AI_PROJECT_ENDPOINT in environment."
+            )
+        
+        status = await ensure_agents_deployed()
+        
+        deployed_count = sum(1 for s in status.values() if s.deployed)
+        total_count = len(status)
+        
+        return {
+            "success": deployed_count == total_count,
+            "deployed_count": deployed_count,
+            "total_count": total_count,
+            "agents": [
+                {
+                    "agent_id": s.agent_id,
+                    "deployed": s.deployed,
+                    "foundry_id": s.foundry_id,
+                    "error": s.error,
+                }
+                for s in status.values()
+            ]
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Agent deployment failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Agent deployment failed: {str(e)}")
 
 
 # Entry point for running with uvicorn directly

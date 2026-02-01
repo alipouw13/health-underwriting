@@ -62,6 +62,8 @@ class ApplicationMetadata:
     analyzer_id_used: Optional[str] = None  # Which analyzer was used for extraction
     # Risk analysis results (separate from main LLM outputs)
     risk_analysis: Optional[Dict[str, Any]] = None  # Policy-based risk assessment
+    # Agent execution results (for multi-agent workflow)
+    agent_execution: Optional[Dict[str, Any]] = None  # Full orchestrator output for Agent Insights
     # Background processing status tracking
     processing_status: Optional[str] = None  # idle, extracting, analyzing, error
     processing_error: Optional[str] = None  # Error message if processing failed
@@ -217,6 +219,7 @@ def _dict_to_metadata(data: Dict[str, Any]) -> ApplicationMetadata:
         confidence_summary=data.get("confidence_summary"),
         analyzer_id_used=data.get("analyzer_id_used"),
         risk_analysis=data.get("risk_analysis"),
+        agent_execution=data.get("agent_execution"),  # Multi-agent workflow output
         processing_status=data.get("processing_status"),
         processing_error=data.get("processing_error"),
     )

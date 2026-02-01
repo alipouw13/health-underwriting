@@ -725,3 +725,165 @@ def run_risk_analysis(
     logger.info("Risk analysis completed for application %s", app_md.id)
     
     return risk_analysis_result
+
+
+def convert_agent_output_to_legacy_format(
+    orchestrator_output: Any,
+    app_md: Any,
+) -> Dict[str, Any]:
+    """Convert OrchestratorOutput to legacy risk analysis response format.
+    
+    Maps the multi-agent workflow output to the same JSON schema expected
+    by the existing UI when using the legacy single-call risk analysis.
+    
+    Args:
+        orchestrator_output: OrchestratorOutput from OrchestratorAgent
+        app_md: ApplicationMetadata for the application
+        
+    Returns:
+        Risk analysis result in legacy format
+    """
+    from datetime import datetime
+    
+    final_decision = orchestrator_output.final_decision
+    
+    # Map RiskLevel enum to legacy string format
+    risk_level_map = {
+        "low": "Low",
+        "moderate": "Moderate", 
+        "high": "High",
+        "very_high": "High",
+    }
+    overall_risk = risk_level_map.get(
+        final_decision.risk_level.value.lower() if hasattr(final_decision.risk_level, 'value') else str(final_decision.risk_level).lower(),
+        "Moderate"
+    )
+    
+    # Map DecisionStatus to premium recommendation
+    status_value = final_decision.status.value if hasattr(final_decision.status, 'value') else str(final_decision.status)
+    decision_map = {
+        "approved": "Standard",
+        "approved_with_conditions": "Rated",
+        "declined": "Decline",
+        "pending_review": "Defer",
+        "referred": "Defer",
+    }
+    base_decision = decision_map.get(status_value.lower(), "Standard")
+    
+    # Build findings from agent execution records
+    findings = []
+    
+    # Get PolicyRiskAgent output if available
+    for record in orchestrator_output.execution_records:
+        if record.agent_id == "PolicyRiskAgent":
+            findings.append({
+                "category": "policy_risk",
+                "finding": record.output_summary,
+                "policy_id": "AGENT-POLICY-001",
+                "policy_name": "Multi-Agent Policy Assessment",
+                "risk_level": overall_risk,
+                "action": f"Risk level: {overall_risk}, Premium adjustment: {final_decision.premium_adjustment_pct:+.0f}%",
+                "rationale": "Determined by multi-agent underwriting workflow"
+            })
+        elif record.agent_id == "HealthDataAnalysisAgent":
+            findings.append({
+                "category": "health_analysis", 
+                "finding": record.output_summary,
+                "policy_id": "AGENT-HEALTH-001",
+                "policy_name": "Multi-Agent Health Analysis",
+                "risk_level": overall_risk,
+                "action": "Health risk signals analyzed",
+                "rationale": "Determined by HealthDataAnalysisAgent"
+            })
+        elif record.agent_id == "BiasAndFairnessAgent":
+            findings.append({
+                "category": "compliance",
+                "finding": record.output_summary,
+                "policy_id": "AGENT-BIAS-001", 
+                "policy_name": "Bias and Fairness Check",
+                "risk_level": "Low" if final_decision.bias_check_passed else "High",
+                "action": "Passed" if final_decision.bias_check_passed else "Review Required",
+                "rationale": "Determined by BiasAndFairnessAgent"
+            })
+    
+    # Calculate loading percentage from premium adjustment
+    if final_decision.premium_adjustment_pct <= 0:
+        loading = "0%"
+    elif final_decision.premium_adjustment_pct <= 25:
+        loading = "+25%"
+    elif final_decision.premium_adjustment_pct <= 50:
+        loading = "+50%"
+    elif final_decision.premium_adjustment_pct <= 75:
+        loading = "+75%"
+    else:
+        loading = "+100%"
+    
+    # Create a clean, readable rationale (not the raw explanation with === separators)
+    clean_rationale = (
+        f"Multi-agent underwriting workflow completed with {len(orchestrator_output.execution_records)} agents. "
+        f"Decision: {status_value.replace('_', ' ').title()}. "
+        f"Risk Level: {overall_risk}. "
+        f"Confidence Score: {orchestrator_output.confidence_score:.0%}. "
+        f"Business Rules: {'Passed' if final_decision.business_rules_approved else 'Failed'}. "
+        f"Bias Check: {'Passed' if final_decision.bias_check_passed else 'Review Required'}."
+    )
+    
+    # Build the legacy format response
+    parsed = {
+        "overall_risk_level": overall_risk,
+        "overall_rationale": clean_rationale,
+        "findings": findings,
+        "premium_recommendation": {
+            "base_decision": base_decision,
+            "loading_percentage": loading,
+            "exclusions": [],
+            "conditions": [final_decision.underwriter_message] if not final_decision.approved else [],
+        },
+        "underwriting_action": final_decision.underwriter_message,
+        "confidence": "High" if orchestrator_output.confidence_score >= 0.8 else "Medium" if orchestrator_output.confidence_score >= 0.5 else "Low",
+        "data_gaps": [],
+        # Additional agent-specific fields for transparency
+        "_agent_execution": {
+            "workflow_id": orchestrator_output.workflow_id,
+            "total_execution_time_ms": orchestrator_output.total_execution_time_ms,
+            "confidence_score": orchestrator_output.confidence_score,
+            "agents_executed": len(orchestrator_output.execution_records),
+            "execution_records": [
+                {
+                    "agent_id": r.agent_id,
+                    "step_number": r.step_number,
+                    "execution_time_ms": r.execution_time_ms,
+                    "success": r.success,
+                    "output_summary": r.output_summary,
+                }
+                for r in orchestrator_output.execution_records
+            ],
+            "final_decision": {
+                "decision_id": final_decision.decision_id,
+                "status": status_value,
+                "risk_level": overall_risk,
+                "approved": final_decision.approved,
+                "premium_adjustment_pct": final_decision.premium_adjustment_pct,
+                "business_rules_approved": final_decision.business_rules_approved,
+                "bias_check_passed": final_decision.bias_check_passed,
+                "customer_message": final_decision.customer_message,
+                "underwriter_message": final_decision.underwriter_message,
+            },
+            # Store detailed explanation for Agent Insights page
+            "detailed_explanation": orchestrator_output.explanation,
+        }
+    }
+    
+    risk_analysis_result = {
+        "timestamp": app_md.created_at,
+        "raw": json.dumps(parsed, indent=2, default=str),
+        "parsed": parsed,
+        "usage": {
+            "total_tokens": 0,  # Agent execution doesn't track tokens the same way
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+        },
+        "_execution_mode": "agent",  # Flag to indicate agent execution was used
+    }
+    
+    return risk_analysis_result

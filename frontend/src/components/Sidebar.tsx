@@ -8,9 +8,11 @@ import {
   FileStack,
   Plus,
   Settings,
+  Bot,
 } from 'lucide-react';
 import type { ApplicationListItem, ApplicationMetadata } from '@/lib/types';
 import clsx from 'clsx';
+import { useFeatureFlags } from '@/lib/useFeatureFlags';
 
 interface SidebarProps {
   applications: ApplicationListItem[];
@@ -29,6 +31,7 @@ export default function Sidebar({
   onSelectApp,
   onChangeView,
 }: SidebarProps) {
+  const { flags } = useFeatureFlags();
   // Check if there are documents available
   const hasDocuments = selectedApp?.files && selectedApp.files.length > 0;
   const hasSourcePages = selectedApp?.markdown_pages && selectedApp.markdown_pages.length > 0;
@@ -156,6 +159,15 @@ export default function Sidebar({
 
       {/* Footer Actions */}
       <div className="p-4 border-t border-slate-700 space-y-2">
+        {flags.agent_execution_enabled && (
+          <Link
+            href="/agents"
+            className="w-full flex items-center justify-center gap-2 px-4 py-2 text-slate-400 hover:text-white hover:bg-sidebar-hover rounded-lg transition-colors"
+          >
+            <Bot className="w-4 h-4" />
+            <span className="text-sm">Agent Insights</span>
+          </Link>
+        )}
         <Link
           href="/admin"
           className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"

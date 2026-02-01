@@ -619,6 +619,76 @@ EMBEDDING_DIMENSIONS=1536
 
 See [spec.md](specs/006-azure-postgresql-rag-integration/spec.md) for detailed architecture documentation.
 
+### Azure Cosmos DB *(Agent Observability)*
+
+When multi-agent execution is enabled (`AGENT_EXECUTION_ENABLED=true`), WorkbenchIQ can persist agent execution data to Azure Cosmos DB for long-term observability, token tracking, and evaluation storage.
+
+**Containers Created Automatically:**
+
+The following containers are auto-created on startup using `create_container_if_not_exists`:
+
+| Container | Partition Key | Purpose |
+|-----------|--------------|---------|
+| `underwriting_agent_runs` | `/application_id` | Complete agent execution records |
+| `token_tracking` | `/execution_id` | Token usage telemetry per agent |
+| `evaluations` | `/evaluation_id` | Agent evaluation results |
+
+**Azure Portal Setup:**
+
+1. Create an Azure Cosmos DB account (NoSQL API):
+   ```bash
+   az cosmosdb create \
+     --name your-cosmos-account \
+     --resource-group your-rg \
+     --kind GlobalDocumentDB \
+     --default-consistency-level Session \
+     --locations regionName="East US" failoverPriority=0
+   ```
+
+2. Assign yourself the "Cosmos DB Built-in Data Contributor" role:
+   ```bash
+   az cosmosdb sql role assignment create \
+     --account-name your-cosmos-account \
+     --resource-group your-rg \
+     --role-definition-name "Cosmos DB Built-in Data Contributor" \
+     --principal-id $(az ad signed-in-user show --query id -o tsv) \
+     --scope "/"
+   ```
+
+3. Add the endpoint to your `.env`:
+   ```env
+   AZURE_COSMOS_ENDPOINT=https://your-cosmos-account.documents.azure.com:443/
+   AZURE_COSMOS_DATABASE_NAME=underwriting-agents
+   AGENT_EXECUTION_ENABLED=true
+   ```
+
+**Configuration Variables:**
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `AZURE_COSMOS_ENDPOINT` | - | Cosmos DB account endpoint |
+| `AZURE_COSMOS_DATABASE_NAME` | `underwriting-agents` | Database name |
+| `AZURE_COSMOS_AGENT_RUNS_CONTAINER` | `underwriting_agent_runs` | Container for execution records |
+| `AZURE_COSMOS_TOKEN_TRACKING_CONTAINER` | `token_tracking` | Container for token usage |
+| `AZURE_COSMOS_EVALUATIONS_CONTAINER` | `evaluations` | Container for evaluations |
+| `AZURE_COSMOS_USE_SERVERLESS` | `true` | Use serverless mode (no provisioned throughput) |
+
+**What Gets Persisted:**
+
+Each agent run document includes:
+- Complete agent execution records with inputs/outputs
+- Agent definitions snapshot (from YAML)
+- Token usage per agent (if available from Foundry SDK)
+- Evaluation metrics (if evaluations are run)
+- Final underwriting decision with confidence score
+- Orchestration summary and errors
+
+**Notes:**
+- Cosmos DB writes happen AFTER orchestration completes (non-blocking)
+- Cosmos errors are logged but don't break the main execution
+- Documents are append-only and immutable
+- No UI changes are required - this is purely for observability
+
 ### Adding a New Persona
 
 1. Define field schema in `app/personas.py`:

@@ -112,6 +112,20 @@ class AppSettings:
     public_files_base_url: Optional[str] = None
 
 
+@dataclass
+class AgentSettings:
+    """Settings for multi-agent execution."""
+    enabled: bool = False  # AGENT_EXECUTION_ENABLED toggle
+    fail_gracefully: bool = False  # If True, fall back to legacy on agent failure
+    
+    @classmethod
+    def from_env(cls) -> "AgentSettings":
+        """Load agent settings from environment variables."""
+        return cls(
+            enabled=os.getenv("AGENT_EXECUTION_ENABLED", "false").lower() == "true",
+            fail_gracefully=os.getenv("AGENT_EXECUTION_FAIL_GRACEFULLY", "false").lower() == "true",
+        )
+
 
 @dataclass
 class Settings:
@@ -121,6 +135,7 @@ class Settings:
     database: DatabaseSettings
     rag: RAGSettings
     automotive_claims: AutomotiveClaimsSettings
+    agent: AgentSettings
 
 
 def load_settings() -> Settings:
@@ -180,8 +195,9 @@ def load_settings() -> Settings:
     )
 
     auto_claims = AutomotiveClaimsSettings.from_env()
+    agent = AgentSettings.from_env()
 
-    return Settings(content_understanding=cu, openai=oa, app=app, database=db, rag=rag, automotive_claims=auto_claims)
+    return Settings(content_understanding=cu, openai=oa, app=app, database=db, rag=rag, automotive_claims=auto_claims, agent=agent)
 
 
 def validate_settings(settings: Settings) -> List[str]:

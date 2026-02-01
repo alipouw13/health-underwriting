@@ -8,12 +8,14 @@ import {
   FileStack,
   Settings,
   ChevronDown,
+  Bot,
 } from 'lucide-react';
 import type { ApplicationListItem, ApplicationMetadata } from '@/lib/types';
 import clsx from 'clsx';
 import { useState } from 'react';
 import PersonaSelector from './PersonaSelector';
 import { usePersona } from '@/lib/PersonaContext';
+import { useFeatureFlags } from '@/lib/useFeatureFlags';
 
 interface TopNavProps {
   applications: ApplicationListItem[];
@@ -34,6 +36,7 @@ export default function TopNav({
 }: TopNavProps) {
   const [appDropdownOpen, setAppDropdownOpen] = useState(false);
   const { personaConfig } = usePersona();
+  const { flags } = useFeatureFlags();
   
   const hasDocuments = selectedApp?.files && selectedApp.files.length > 0;
   const hasSourcePages = selectedApp?.markdown_pages && selectedApp.markdown_pages.length > 0;
@@ -132,6 +135,15 @@ export default function TopNav({
 
         {/* Right Side Actions */}
         <div className="flex items-center gap-4">
+          {flags.agent_execution_enabled && (
+            <Link
+              href="/agents"
+              className="flex items-center gap-2 px-3 py-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors"
+            >
+              <Bot className="w-4 h-4" />
+              <span className="text-sm">Agent Insights</span>
+            </Link>
+          )}
           <Link
             href="/admin"
             className="flex items-center gap-2 px-3 py-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors"
