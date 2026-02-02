@@ -2,18 +2,212 @@
 
 # WorkbenchIQ
 
-### AI-Powered Workbench for Underwriters & Claims Processors
+### AI-Powered Workbench for Insurance Underwriters, Claims Processors & End Users
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![Node.js 18+](https://img.shields.io/badge/node.js-18+-green.svg)](https://nodejs.org/)
-[![Azure AI](https://img.shields.io/badge/Azure-AI%20Services-0078D4.svg)](https://azure.microsoft.com/en-us/products/ai-services/)
+[![Azure AI Foundry](https://img.shields.io/badge/Azure-AI%20Foundry-0078D4.svg)](https://azure.microsoft.com/en-us/products/ai-studio/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-**WorkbenchIQ** is a Microsoft accelerator that provides a modern workbench for **underwriters** and **claims processors**, combining **Azure AI Content Understanding** and **Azure AI Foundry** to streamline document-heavy insurance workflows.
+**WorkbenchIQ** is a Microsoft accelerator providing a modern AI-powered workbench for **underwriters**, **claims processors**, and **end users**, combining **Azure AI Content Understanding**, **Azure AI Foundry Multi-Agent Orchestration**, and **Azure AI Evaluation SDK** to streamline document-heavy insurance workflows with full transparency and auditability.
 
-[Features](#features) | [Quick Start](#quick-start) | [Architecture](#architecture) | [Use Cases](#business-use-cases) | [Configuration](#configuration)
+[Business Value](#business-value) | [Architecture](#architecture) | [Features](#features) | [Quick Start](#quick-start) | [Deployment](#deployment)
 
 </div>
+
+---
+
+## Business Value
+
+WorkbenchIQ delivers measurable business impact across insurance operations:
+
+### For Insurance Carriers
+
+| Metric | Impact |
+|--------|--------|
+| **Application Processing Time** | 70-80% reduction (hours → minutes) |
+| **Underwriting Consistency** | Standardized risk assessment with policy alignment |
+| **Audit Compliance** | Full decision traceability with agent-level transparency |
+| **Operational Costs** | Reduced manual review overhead |
+| **Customer Experience** | Self-service applications with real-time status |
+
+### Key Business Outcomes
+
+- **Faster Time-to-Decision**: Automated document extraction and multi-agent risk analysis
+- **Reduced Error Rates**: AI-powered validation against underwriting policies
+- **Regulatory Compliance**: Complete audit trails with Cosmos DB persistence
+- **Scalable Operations**: Handle volume spikes without proportional staffing
+- **Quality Assurance**: Azure AI Foundry evaluations provide continuous quality scoring
+
+---
+
+## Architecture
+
+![WorkbenchIQ Architecture](docs/images/arch.png)
+
+### System Overview
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           USER INTERFACES                                    │
+│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐              │
+│  │   Underwriter   │  │  Claims Adjuster│  │   End User      │              │
+│  │   Workbench     │  │   Workbench     │  │   (Apple Health)│              │
+│  └────────┬────────┘  └────────┬────────┘  └────────┬────────┘              │
+│           │                    │                    │                        │
+│           └────────────────────┼────────────────────┘                        │
+│                                │                                             │
+│                    ┌───────────▼───────────┐                                 │
+│                    │    Next.js 14 UI      │                                 │
+│                    │  (React + Tailwind)   │                                 │
+│                    └───────────┬───────────┘                                 │
+└────────────────────────────────┼─────────────────────────────────────────────┘
+                                 │ REST API / SSE
+┌────────────────────────────────┼─────────────────────────────────────────────┐
+│                    ┌───────────▼───────────┐                                 │
+│                    │   FastAPI Backend     │                                 │
+│                    │    (Python 3.10+)     │                                 │
+│                    └───────────┬───────────┘                                 │
+│                                │                                             │
+│    ┌───────────────────────────┼───────────────────────────┐                 │
+│    │                           │                           │                 │
+│    ▼                           ▼                           ▼                 │
+│ ┌──────────────┐    ┌──────────────────┐    ┌─────────────────────┐         │
+│ │   Personas   │    │  Multi-Agent     │    │   End User Flow     │         │
+│ │    Engine    │    │  Orchestrator    │    │   (Apple Health)    │         │
+│ └──────────────┘    └────────┬─────────┘    └─────────────────────┘         │
+│                              │                                               │
+│         ┌────────────────────┼────────────────────┐                          │
+│         │                    │                    │                          │
+│         ▼                    ▼                    ▼                          │
+│  ┌─────────────┐   ┌─────────────────┐   ┌─────────────────┐                │
+│  │   Health    │   │   Policy Risk   │   │  Business Rules │                │
+│  │   Data      │   │     Agent       │   │   Validation    │                │
+│  │   Analysis  │   │                 │   │     Agent       │                │
+│  └─────────────┘   └─────────────────┘   └─────────────────┘                │
+│         │                    │                    │                          │
+│         └────────────────────┼────────────────────┘                          │
+│                              ▼                                               │
+│                    ┌─────────────────┐                                       │
+│                    │  Communication  │                                       │
+│                    │     Agent       │                                       │
+│                    └─────────────────┘                                       │
+│                              │                                               │
+│                              ▼                                               │
+│                    ┌─────────────────┐                                       │
+│                    │ Foundry Evals   │                                       │
+│                    │ (Quality Scores)│                                       │
+│                    └─────────────────┘                                       │
+│                                                                              │
+│                         BACKEND SERVICES                                     │
+└──────────────────────────────────────────────────────────────────────────────┘
+                                 │
+┌────────────────────────────────┼─────────────────────────────────────────────┐
+│                           AZURE AI SERVICES                                  │
+│                                │                                             │
+│    ┌───────────────────────────┼───────────────────────────┐                 │
+│    │                           │                           │                 │
+│    ▼                           ▼                           ▼                 │
+│ ┌──────────────┐    ┌──────────────────┐    ┌─────────────────────┐         │
+│ │  Azure AI    │    │   Azure OpenAI   │    │   Azure AI Foundry  │         │
+│ │   Content    │    │    Service       │    │      Agents         │         │
+│ │Understanding │    │                  │    │                     │         │
+│ │              │    │  • GPT-4.1       │    │  • Health Analysis  │         │
+│ │• Doc Search  │    │  • Embeddings    │    │  • Risk Validation  │         │
+│ │• OCR/Layout  │    │  • Chat          │    │  • Communication    │         │
+│ │• Extraction  │    │                  │    │                     │         │
+│ └──────────────┘    └──────────────────┘    └─────────────────────┘         │
+│                                                                              │
+│    ┌──────────────────────────────────────────────────────────────┐         │
+│    │                    Azure AI Evaluation SDK                    │         │
+│    │  • Groundedness • Coherence • Relevance • Fluency            │         │
+│    └──────────────────────────────────────────────────────────────┘         │
+└──────────────────────────────────────────────────────────────────────────────┘
+                                 │
+┌────────────────────────────────┼─────────────────────────────────────────────┐
+│                           DATA SERVICES                                      │
+│    ┌───────────────────────────┼───────────────────────────┐                 │
+│    │                           │                           │                 │
+│    ▼                           ▼                           ▼                 │
+│ ┌──────────────┐    ┌──────────────────┐    ┌─────────────────────┐         │
+│ │ Azure Blob   │    │   Azure Cosmos   │    │  Azure PostgreSQL   │         │
+│ │   Storage    │    │      DB          │    │  (Optional RAG)     │         │
+│ │              │    │                  │    │                     │         │
+│ │• Documents   │    │• Agent Runs      │    │  • pgvector         │         │
+│ │• PDFs        │    │• Token Tracking  │    │  • Policy Chunks    │         │
+│ │• Metadata    │    │• Evaluations     │    │  • Semantic Search  │         │
+│ └──────────────┘    └──────────────────┘    └─────────────────────┘         │
+└──────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Multi-Agent Workflow
+
+```
+┌────────────┐    ┌─────────────────┐    ┌─────────────────┐    ┌─────────────┐
+│  Document  │───▶│  Health Data    │───▶│  Policy Risk    │───▶│  Business   │
+│  Upload    │    │  Analysis Agent │    │     Agent       │    │  Rules      │
+└────────────┘    └─────────────────┘    └─────────────────┘    │ Validation  │
+                         │                       │               └──────┬──────┘
+                         │                       │                      │
+                         ▼                       ▼                      ▼
+                  ┌─────────────┐         ┌─────────────┐       ┌─────────────┐
+                  │  Foundry    │         │  Foundry    │       │  Foundry    │
+                  │  Evaluation │         │  Evaluation │       │  Evaluation │
+                  └─────────────┘         └─────────────┘       └─────────────┘
+                                                                       │
+                                                                       ▼
+                                                            ┌─────────────────┐
+                                                            │  Communication  │
+                                                            │     Agent       │
+                                                            └────────┬────────┘
+                                                                     │
+                                                                     ▼
+                                                            ┌─────────────────┐
+                                                            │ Final Decision  │
+                                                            │ + Workflow Eval │
+                                                            └─────────────────┘
+```
+
+---
+
+## Features
+
+### Multi-Agent Underwriting Engine
+
+- **Orchestrated Agent Workflow** - 4-agent pipeline for comprehensive risk assessment
+- **Azure AI Foundry Integration** - Agents deployed as Foundry AI agents with tool calling
+- **Real-time Progress Streaming** - SSE-based progress updates during agent execution
+- **Agent Transparency View** - Full visibility into each agent's inputs, outputs, and reasoning
+- **Azure AI Evaluations** - Quality scoring (groundedness, coherence, relevance, fluency) after each agent
+
+### End User Self-Service Flow
+
+- **Apple Health Integration** - Mock Apple Health data import for self-service applications
+- **Applicant Portal** - End users can submit applications and track status
+- **Real-time Agent Progress** - Live visualization of underwriting decision process
+- **Patient Summary Display** - Health metrics, lab results, family history visualization
+
+### Underwriter Workbench
+
+- **Document Extraction** - Azure AI Content Understanding with field-level confidence
+- **AI-Powered Analysis** - LLM prompts for comprehensive document summarization
+- **Policy-Driven Risk Ratings** - Automated risk assessment with auditable policy citations
+- **Ask IQ Chat** - Context-aware chat with RAG-powered policy search
+- **Policy Report Modal** - Full evaluation summary with PDF export
+
+### Claims Processing
+
+- **Medical Claims Review** - ICD-10 code extraction and coverage verification
+- **Document Triage** - Intelligent routing based on claim type and complexity
+- **Provider Information** - Automatic extraction of healthcare provider details
+
+### Technical Capabilities
+
+- **Azure AI Foundry Evaluations** - Per-agent and workflow-level quality metrics
+- **Cosmos DB Observability** - Full agent run persistence and token tracking
+- **Azure Blob Storage** - Scalable document storage with Azure AD authentication
+- **PostgreSQL + pgvector** - Optional RAG for semantic policy search
+- **Feature Flags** - Granular control over agent execution and evaluations
 
 ---
 
@@ -70,8 +264,6 @@
 *Prompt management and analyzer configuration*
 
 </td>
-</tr>
-<tr>
 <td width="50%">
 
 **Ask IQ Chat Interface**
@@ -81,325 +273,237 @@
 *Context-aware chat with policy and application knowledge*
 
 </td>
-<td width="50%">
-
-**Rich Chat Cards**
-
-![Rich Chat Cards](docs/images/chat-cards.png)
-
-*Structured responses with risk factors and recommendations*
-
-</td>
 </tr>
 </table>
 
 ---
 
-## Business Use Cases
+## Required Azure Resources
 
-WorkbenchIQ accelerates the daily work of underwriters and claims processors:
+### Core Resources (Required)
 
-### Life Insurance Underwriting
+| Resource | Purpose | SKU/Tier |
+|----------|---------|----------|
+| **Azure AI Content Understanding** | Document extraction, OCR, layout analysis | Standard |
+| **Azure OpenAI Service** | LLM for analysis, chat, embeddings | Standard |
+| **Azure Blob Storage** | Document and metadata storage | Standard LRS |
+| **Azure Cosmos DB** | Agent run persistence, token tracking, evaluations | Serverless |
 
-- **Challenge**: Underwriters manually review 50+ page applications with medical records, lab results, and family history
-- **Solution**: Automatically extract key fields (applicant info, medical conditions, medications, risk factors) and generate structured underwriting summaries
-- **Outcome**: Reduce review time from hours to minutes with AI-assisted risk assessment
+### AI Foundry Resources (For Multi-Agent)
 
-### Insurance Claims Processing
+| Resource | Purpose | Configuration |
+|----------|---------|---------------|
+| **Azure AI Foundry Project** | Agent deployment and management | Create project in AI Foundry portal |
+| **Foundry Agent: HealthDataAnalysis** | Health metrics analysis | Deploy via Foundry |
+| **Foundry Agent: BusinessRulesValidation** | Policy rule validation | Deploy via Foundry |
+| **Foundry Agent: Communication** | Decision communication generation | Deploy via Foundry |
 
-- **Challenge**: Claims adjusters process medical claims requiring cross-referencing diagnosis codes, procedures, and policy coverage
-- **Solution**: Extract ICD-10 codes, treatment details, and provider information; verify coverage eligibility automatically
-- **Outcome**: Accelerate claims adjudication with intelligent document triage
+### Optional Resources
 
-### Mortgage Underwriting *(Coming Soon)*
+| Resource | Purpose | When Needed |
+|----------|---------|-------------|
+| **Azure PostgreSQL Flexible Server** | RAG-powered policy search | If `RAG_ENABLED=true` |
+| **Azure Key Vault** | Secret management | Production deployments |
+| **Azure App Service** | Hosting (alternative to local) | Cloud deployment |
 
-- **Challenge**: Loan officers review income verification, property appraisals, and credit documentation
-- **Solution**: Extract borrower information, income sources, debt-to-income ratios, and property valuations
-- **Outcome**: Streamline loan approval with consistent document analysis
+### Model Deployments
 
----
-
-## Features
-
-### Core Capabilities
-
-- **Multi-Persona Workbench** - Switch between underwriting and claims processing workflows
-- **Intelligent Document Extraction** - Azure AI Content Understanding with `prebuilt-documentSearch`
-- **AI-Powered Analysis** - LLM prompts for comprehensive document summarization and risk assessment
-- **Confidence Scoring** - Field-level confidence indicators for extracted data
-- **Custom Prompt Engineering** - Editable prompt catalog tailored to underwriting and claims workflows
-- **Progress Tracking** - Real-time status updates for long-running operations
-
-### Underwriting Policy Integration
-
-- **Policy-Driven Risk Ratings** - Automated risk assessment based on documented underwriting policies with auditable citations
-- **Risk Rating Popovers** - Hover over any risk rating to see the rationale and policy reference
-- **Policy Report Modal** - Full policy evaluation summary with all risk factors and PDF export
-- **Policy Summary Panel** - At-a-glance recommended action with policy alignment
-
-### AI Chat Experience
-
-- **Ask IQ Chat Interface** - Context-aware chat drawer for asking questions about applications
-- **Policy & Application Context** - AI responses grounded in both application data and underwriting policies
-- **Rich Response Cards** - Structured responses with visual cards for risk factors, policy lists, recommendations, and comparisons
-- **Chat History** - Persistent chat sessions per application with slide-out history panel
-- **Smart Recommendations** - Decision cards showing approve/defer/decline with confidence levels and conditions
-
-### RAG-Powered Policy Search *(Optional)*
-
-- **Semantic Policy Retrieval** - Vector-based search finds relevant policy sections using Azure OpenAI embeddings
-- **Hybrid Search** - Combines semantic similarity with keyword matching (pg_trgm) for comprehensive results
-- **Policy Citations** - Chat responses include expandable citations linking to specific policy sections
-- **RAG Metadata** - View chunks retrieved, token usage, and latency for transparency
-- **Auto-Indexing** - Policies are automatically chunked and indexed when created or updated
-- **Admin Controls** - Manual reindex button and index statistics in the Admin panel
-
-### Technical Features
-
-- **Modern Stack** - Next.js 14 + Tailwind CSS frontend, FastAPI backend
-- **REST API** - Full API with interactive Swagger documentation
-- **Azure AD Authentication** - Secure service-to-service authentication
-- **Extensible Personas** - Easy to add new industry verticals
-- **Retry Logic** - Resilient API calls with exponential backoff
-- **PostgreSQL + pgvector** - Optional vector database for RAG-powered policy search
-- **Hybrid Search** - Semantic (HNSW index) + keyword (GIN/pg_trgm) search capabilities
-
----
-
-## Architecture
-
-```
-+-----------------------------------------------------------------------------+
-|                              USER INTERFACE                                  |
-|                                                                             |
-|    +-------------+    +-------------+    +-------------+                    |
-|    | Underwriting|    |   Claims    |    |  Mortgage   |                    |
-|    |  Workbench  |    |  Workbench  |    |  Workbench  |                    |
-|    +------+------+    +------+------+    +------+------+                    |
-|           |                  |                  |                           |
-|           +------------------+------------------+                           |
-|                              |                                              |
-|                    +---------v---------+                                    |
-|                    |   Next.js 14 UI   |                                    |
-|                    |  (React + Tailwind)|                                   |
-|                    +---------+---------+                                    |
-+------------------------------+----------------------------------------------+
-                               | REST API
-+------------------------------+----------------------------------------------+
-|                    +---------v---------+                                    |
-|                    |   FastAPI Server  |                                    |
-|                    |   (Python 3.10+)  |                                    |
-|                    +---------+---------+                                    |
-|                              |                                              |
-|              +---------------+---------------+                              |
-|              |               |               |                              |
-|    +---------v-----+ +-------v-------+ +-----v-----+                        |
-|    |   Personas    | |    Prompts    | |  Storage  |                        |
-|    |    Engine     | |    Catalog    | |  Manager  |                        |
-|    +---------------+ +---------------+ +-----------+                        |
-|                              |                                              |
-|                              | BACKEND                                      |
-+------------------------------+----------------------------------------------+
-                               |
-+------------------------------+----------------------------------------------+
-|                              | AZURE AI SERVICES                            |
-|              +---------------+---------------+                              |
-|              |                               |                              |
-|    +---------v----------+      +-------------v-------------+                |
-|    |  Azure AI Content  |      |      Azure OpenAI         |                |
-|    |   Understanding    |      |       (LLM + Embeddings)  |                |
-|    |                    |      |                           |                |
-|    | - Document Search  |      | - Underwriting Summaries  |                |
-|    | - Field Extraction |      | - Risk Assessment         |                |
-|    | - OCR + Layout     |      | - Medical Analysis        |                |
-|    | - Confidence Scores|      | - Requirements Checklist  |                |
-|    +--------------------+      | - text-embedding-3-small  |                |
-|                                +---------------------------+                |
-|                                              |                              |
-+----------------------------------------------+------------------------------+
-                                               |
-+----------------------------------------------+------------------------------+
-|                              | AZURE DATA SERVICES (Optional)               |
-|                              |                                              |
-|                    +---------v---------+                                    |
-|                    | Azure PostgreSQL  |                                    |
-|                    | Flexible Server   |                                    |
-|                    |                   |                                    |
-|                    | - pgvector (HNSW) |                                    |
-|                    | - pg_trgm (GIN)   |                                    |
-|                    | - Policy Chunks   |                                    |
-|                    | - RAG Search      |                                    |
-|                    +-------------------+                                    |
-|                                                                             |
-+-----------------------------------------------------------------------------+
-```
-
-### Data Flow
-
-```
-+----------+     +--------------+     +-----------------+     +--------------+
-|  Upload  |---->|   Extract    |---->|     Analyze     |---->|    Review    |
-|   PDFs   |     |   (Azure CU) |     |   (Azure AI Foundry)   |     |   Results    |
-+----------+     +--------------+     +-----------------+     +--------------+
-     |                  |                      |                      |
-     |           - Parse documents      - Run prompts           - View summaries
-     |           - Extract fields       - Generate insights     - Check confidence
-     |           - Get confidence       - Risk assessment       - Export data
-     |
-  PDF files stored locally in data/applications/{id}/files/
-```
-
----
-
-## Available Workbenches
-
-| Persona | Status | Description |
-|---------|--------|-------------|
-| **Underwriting** | Active | Life insurance underwriting - process applications and medical documents |
-| **Claims** | Demo | Insurance claims processing - review medical claims and documentation |
-| **Mortgage** | Coming Soon | Mortgage underwriting - loan applications and property documents |
-
----
-
-## Prerequisites
-
-- **Python 3.10+** - Backend runtime
-- **Node.js 18+** - Frontend runtime
-- **[uv](https://github.com/astral-sh/uv)** or **pip** - Python dependency management
-- **Azure Subscription** with the following services:
-  - **Azure AI Content Understanding** with `prebuilt-documentSearch` analyzer
-  - **Azure OpenAI Service** with `gpt-4.1` or `gpt-4o` deployment
+| Model | Deployment Name | Purpose |
+|-------|-----------------|---------|
+| `gpt-4.1` or `gpt-4o` | `gpt-4.1` | Document analysis, risk assessment |
+| `gpt-4.1-mini` | `gpt-4.1-mini` | Chat (cost-optimized) |
+| `text-embedding-3-small` | `text-embedding-3-small` | RAG embeddings (optional) |
 
 ---
 
 ## Quick Start
 
-### 1. Clone & Install Dependencies
+### Prerequisites
+
+- **Python 3.10+** with [uv](https://github.com/astral-sh/uv) (recommended) or pip
+- **Node.js 18+** with npm
+- **Azure CLI** (`az login` for Azure AD authentication)
+- **Azure Subscription** with required resources provisioned
+
+### 1. Clone & Install
 
 ```bash
 # Clone the repository
 git clone https://github.com/microsoft/workbenchiq.git
 cd workbenchiq
 
-# Install Python dependencies (using uv - recommended)
+# Install Python dependencies
 uv sync
 
-# OR using pip
-pip install -r requirements.txt
-
 # Install frontend dependencies
-cd frontend
-npm install
-cd ..
+cd frontend && npm install && cd ..
 ```
 
-### 2. Configure Azure Services
+### 2. Configure Environment
 
 Create a `.env` file in the project root:
 
 ```env
-# Azure AI Content Understanding
+# === AZURE AI CONTENT UNDERSTANDING ===
 AZURE_CONTENT_UNDERSTANDING_ENDPOINT=https://your-resource.cognitiveservices.azure.com
 AZURE_CONTENT_UNDERSTANDING_USE_AZURE_AD=true
-# If not using Azure AD, set API key:
-# AZURE_CONTENT_UNDERSTANDING_API_KEY=your-key-here
 
-# Azure OpenAI
+# === AZURE OPENAI ===
 AZURE_OPENAI_ENDPOINT=https://your-openai.openai.azure.com
-AZURE_OPENAI_API_KEY=your-openai-api-key
-AZURE_OPENAI_DEPLOYMENT_NAME=gpt-4-1
+AZURE_OPENAI_API_KEY=your-api-key
+AZURE_OPENAI_DEPLOYMENT_NAME=gpt-4.1
+AZURE_OPENAI_CHAT_DEPLOYMENT_NAME=gpt-4.1-mini
 
-# Optional Configuration
-# UW_APP_STORAGE_ROOT=data
-# AZURE_OPENAI_API_VERSION=2024-10-21
+# === STORAGE ===
+STORAGE_BACKEND=azure_blob
+AZURE_STORAGE_ACCOUNT_NAME=your-storage-account
+AZURE_STORAGE_CONTAINER_NAME=workbenchiq-data
+
+# === COSMOS DB ===
+AZURE_COSMOS_ENDPOINT=https://your-cosmos.documents.azure.com:443/
+AZURE_COSMOS_DATABASE_NAME=underwriting-agents
+
+# === AGENT EXECUTION ===
+AGENT_EXECUTION_ENABLED=true
+USE_FOUNDRY_AGENTS=true
+AZURE_AI_PROJECT_ENDPOINT=https://your-project.services.ai.azure.com/api/projects/your-project
+
+# === FOUNDRY EVALUATIONS ===
+FOUNDRY_EVALUATIONS_ENABLED=true
 ```
-
-**Authentication Options:**
-
-| Method | When to Use | Configuration |
-|--------|-------------|---------------|
-| **Azure AD** (Recommended) | Production, CI/CD | Set `AZURE_CONTENT_UNDERSTANDING_USE_AZURE_AD=true` and run `az login` |
-| **API Key** | Local development | Set `USE_AZURE_AD=false` and provide `AZURE_CONTENT_UNDERSTANDING_API_KEY` |
 
 ### 3. Run the Application
-
-**Option 1: Run both servers together**
-
-```bash
-# Windows
-run_frontend.bat
-
-# Linux/Mac
-./run_frontend.sh
-```
-
-**Option 2: Run servers separately**
 
 ```bash
 # Terminal 1: Start API server
 uv run python -m uvicorn api_server:app --reload --port 8000
 
 # Terminal 2: Start frontend
-cd frontend
-npm run dev
+cd frontend && npm run dev
 ```
 
 ### 4. Access the Application
 
 | Service | URL |
 |---------|-----|
-| Frontend | http://localhost:3000 |
-| API | http://localhost:8000 |
-| API Docs (Swagger) | http://localhost:8000/docs |
+| **Frontend** | http://localhost:3000 |
+| **API** | http://localhost:8000 |
+| **API Docs** | http://localhost:8000/docs |
+| **End User Portal** | http://localhost:3000 (select "End User" persona) |
 
 ---
 
-## Usage Guide
+## Deployment Guide
 
-### Underwriter Workflow
+### Development Environment Setup
 
-1. **Create New Application**
-   - Select "Underwriting" persona from the dropdown
-   - Click "New Application"
-   - Enter optional external reference/policy number
-   - Upload PDF documents (applications, medical records, lab reports)
-   - Click "Create Application"
+1. **Provision Azure Resources**
+   ```bash
+   # Login to Azure
+   az login
+   
+   # Create resource group
+   az group create --name rg-workbenchiq-dev --location eastus2
+   
+   # Create Azure OpenAI resource
+   az cognitiveservices account create \
+     --name aoai-workbenchiq-dev \
+     --resource-group rg-workbenchiq-dev \
+     --kind OpenAI \
+     --sku S0 \
+     --location eastus2
+   
+   # Create Cosmos DB account
+   az cosmosdb create \
+     --name cosmos-workbenchiq-dev \
+     --resource-group rg-workbenchiq-dev \
+     --locations regionName=eastus2 failoverPriority=0
+   
+   # Create Storage Account
+   az storage account create \
+     --name stworkbenchiqdev \
+     --resource-group rg-workbenchiq-dev \
+     --sku Standard_LRS
+   ```
 
-2. **Document Extraction**
-   - The system automatically runs Azure AI Content Understanding
-   - Extracts 30+ fields including: Applicant info, medical history, medications, lab results
-   - Each field shows confidence scores (High/Medium/Low)
+2. **Deploy OpenAI Models**
+   ```bash
+   # Deploy GPT-4.1
+   az cognitiveservices account deployment create \
+     --name aoai-workbenchiq-dev \
+     --resource-group rg-workbenchiq-dev \
+     --deployment-name gpt-4.1 \
+     --model-name gpt-4.1 \
+     --model-version "2024-04-01-preview" \
+     --sku-capacity 10 \
+     --sku-name Standard
+   ```
 
-3. **AI Analysis**
-   - LLM generates structured summaries:
-     - **Customer Profile** - Demographics and policy details
-     - **Medical Summary** - Conditions, medications, family history
-     - **Risk Assessment** - Hypertension, cholesterol, lifestyle factors
-     - **Requirements** - Pending items and next steps
+3. **Create AI Foundry Project**
+   - Navigate to [Azure AI Foundry Portal](https://ai.azure.com)
+   - Create new project linked to your Azure OpenAI resource
+   - Deploy agents using the agent definitions in `specs/`
 
-4. **Policy-Driven Risk Assessment**
-   - Hover over any risk rating to see the rationale and policy citation
-   - Click "Run Policy Check" to generate a full policy evaluation report
-   - View all risk factors at once with the Policy Report modal
-   - Export policy reports as PDF for auditing or case files
+4. **Configure Cosmos DB**
+   ```bash
+   # Create database and containers
+   az cosmosdb sql database create \
+     --account-name cosmos-workbenchiq-dev \
+     --resource-group rg-workbenchiq-dev \
+     --name underwriting-agents
+   
+   az cosmosdb sql container create \
+     --account-name cosmos-workbenchiq-dev \
+     --resource-group rg-workbenchiq-dev \
+     --database-name underwriting-agents \
+     --name underwriting_agent_runs \
+     --partition-key-path /workflow_id
+   ```
 
-5. **Ask IQ Chat**
-   - Click the floating "Ask IQ" button to open the chat drawer
-   - Ask questions about the application with full context awareness
-   - AI responses include policy citations and structured risk analysis
-   - View chat history in the slide-out panel; switch between conversations
-   - Rich response cards display risk factors, recommendations, and comparisons
+5. **Run Locally**
+   ```bash
+   # Ensure .env is configured with all endpoints
+   uv run python -m uvicorn api_server:app --reload --port 8000
+   cd frontend && npm run dev
+   ```
 
-6. **Review & Export**
-   - Review extracted fields with source citations
-   - View confidence indicators
-   - Export results as needed
+### Production Deployment Considerations
 
-### Admin Workflow
+For production deployments, consider:
 
-1. **Edit Prompts** - Customize AI prompts for your specific use case
-2. **Manage Analyzers** - Create/delete custom analyzers for field extraction
-3. **Re-run Analysis** - Selectively re-process sections with updated prompts
+- **Azure App Service** or **Azure Container Apps** for hosting
+- **Azure Key Vault** for secret management
+- **Azure Front Door** for global distribution and WAF
+- **Azure Monitor** for observability
+- **Managed Identity** for service-to-service authentication
+
+---
+
+## Configuration Reference
+
+### Feature Flags
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `AGENT_EXECUTION_ENABLED` | `false` | Enable multi-agent orchestration |
+| `USE_FOUNDRY_AGENTS` | `false` | Use Azure AI Foundry agents (vs local rules) |
+| `FOUNDRY_EVALUATIONS_ENABLED` | `false` | Enable Azure AI Evaluation SDK scoring |
+| `RAG_ENABLED` | `false` | Enable PostgreSQL-based policy RAG |
+
+### Storage Options
+
+| Backend | Configuration | Use Case |
+|---------|---------------|----------|
+| `local` | `STORAGE_BACKEND=local` | Development, testing |
+| `azure_blob` | `STORAGE_BACKEND=azure_blob` | Production, cloud deployment |
+
+### Agent Configuration
+
+| Variable | Description |
+|----------|-------------|
+| `AZURE_AI_PROJECT_ENDPOINT` | AI Foundry project endpoint |
+| `AZURE_COSMOS_ENDPOINT` | Cosmos DB endpoint for agent observability |
+| `AZURE_COSMOS_DATABASE_NAME` | Database name (default: `underwriting-agents`) |
 
 ---
 
@@ -407,368 +511,90 @@ npm run dev
 
 ```
 workbenchiq/
-├── api_server.py                 # FastAPI backend server
+├── api_server.py                 # FastAPI backend entry point
 ├── app/
+│   ├── agents/                   # Multi-agent system
+│   │   ├── orchestrator.py       # Agent orchestration & workflow
+│   │   ├── health_data_analysis.py
+│   │   ├── policy_risk.py
+│   │   ├── business_rules_validation.py
+│   │   ├── communication.py
+│   │   ├── evaluations.py        # Azure AI Foundry evaluations
+│   │   ├── foundry_service.py    # Foundry agent invoker
+│   │   └── base.py               # Base agent classes
+│   ├── cosmos/                   # Cosmos DB integration
+│   │   ├── service.py            # CRUD operations
+│   │   └── models.py             # Data models
+│   ├── end_user/                 # End user self-service
+│   │   ├── user_session.py       # Session management
+│   │   ├── application_generator.py
+│   │   └── apple_health_mock.py  # Mock health data
+│   ├── rag/                      # RAG module (optional)
+│   ├── claims/                   # Claims processing
 │   ├── config.py                 # Configuration management
-│   ├── personas.py               # Multi-persona definitions & field schemas
-│   ├── storage.py                # File and metadata handling
-│   ├── prompts.py                # Prompt templates & catalog
-│   ├── openai_client.py          # Azure OpenAI integration
-│   ├── content_understanding_client.py  # Azure CU integration
-│   ├── processing.py             # Orchestration logic
-│   ├── underwriting_policies.py  # Policy loader and injector
-│   ├── utils.py                  # Helper utilities
-│   └── rag/                      # RAG module (optional PostgreSQL)
-│       ├── __init__.py           # RAG service exports
-│       ├── chunker.py            # Policy text chunking
-│       ├── embedder.py           # Azure OpenAI embedding client
-│       ├── repository.py         # PostgreSQL CRUD operations
-│       ├── search.py             # Semantic & hybrid search
-│       ├── service.py            # Unified RAG service interface
-│       └── indexer.py            # Policy indexing pipeline
-├── scripts/                      # Utility scripts
-│   ├── setup_postgresql_rag.py   # Azure PostgreSQL provisioning
-│   └── index_policies.py         # CLI for policy indexing
-├── prompts/                      # Git-tracked prompts & policies
-│   ├── prompts.json              # LLM prompts for document analysis
-│   ├── risk-analysis-prompts.json # Risk analysis prompt templates
-│   ├── life-health-underwriting-policies.json # Underwriting policy manual
-│   └── policies.json             # Claims/health plan policies
+│   ├── personas.py               # Multi-persona definitions
+│   ├── storage.py                # Storage abstraction
+│   └── ...
 ├── frontend/                     # Next.js 14 frontend
-│   ├── src/
-│   │   ├── app/                  # Next.js pages (App Router)
-│   │   ├── components/           # React components
-│   │   │   ├── claims/           # Claims-specific components
-│   │   │   ├── chat/             # Chat components
-│   │   │   │   ├── ChatCards.tsx     # Rich response cards (risk factors, recommendations)
-│   │   │   │   └── ChatHistoryPanel.tsx
-│   │   │   ├── ChatDrawer.tsx    # Slide-out chat interface
-│   │   │   ├── PatientHeader.tsx
-│   │   │   ├── LabResultsPanel.tsx
-│   │   │   └── ...
-│   │   └── lib/                  # Utilities, API client, PersonaContext
-│   └── package.json
-├── tests/                        # Test suite and fixtures
-├── data/                         # Application data storage (gitignored)
-├── docs/
-│   └── images/                   # Screenshots for documentation
-└── .env.example                  # Environment template
+│   └── src/
+│       ├── app/                  # Next.js pages
+│       ├── components/
+│       │   ├── agents/           # Agent transparency UI
+│       │   │   ├── AgentTransparencyView.tsx
+│       │   │   ├── EvaluationCard.tsx
+│       │   │   └── ...
+│       │   ├── chat/             # Chat components
+│       │   └── ...
+│       └── lib/                  # Utilities, types, API client
+├── prompts/                      # Prompt templates
+├── scripts/                      # Utility scripts
+├── tests/                        # Test suite
+└── docs/                         # Documentation
 ```
 
 ---
 
 ## API Reference
 
+### Applications
+
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `GET` | `/api/personas` | List all available personas |
-| `GET` | `/api/personas/{id}` | Get specific persona configuration |
 | `GET` | `/api/applications` | List all applications |
+| `POST` | `/api/applications` | Create new application |
 | `GET` | `/api/applications/{id}` | Get application details |
-| `POST` | `/api/applications` | Create new application with file upload |
-| `POST` | `/api/applications/{id}/extract` | Run Content Understanding extraction |
-| `POST` | `/api/applications/{id}/analyze` | Run GPT analysis |
-| `GET` | `/api/prompts` | Get prompt catalog |
-| `PUT` | `/api/prompts/{section}/{subsection}` | Update a prompt |
-| `POST` | `/api/prompts/{section}/{subsection}` | Create a new prompt |
-| `DELETE` | `/api/prompts/{section}/{subsection}` | Delete/reset a prompt |
-| `GET` | `/api/policies` | Get all underwriting policies |
-| `GET` | `/api/policies/{id}` | Get specific policy by ID |
-| `POST` | `/api/policies` | Create a new underwriting policy |
-| `PUT` | `/api/policies/{id}` | Update an underwriting policy |
-| `DELETE` | `/api/policies/{id}` | Delete an underwriting policy |
-| `GET` | `/api/analyzer/status` | Get custom analyzer status |
-| `POST` | `/api/analyzer/create` | Create custom analyzer |
-| `GET` | `/api/analyzer/schema?persona={id}` | Get field extraction schema |
-| `POST` | `/api/applications/{id}/risk-analysis` | Run full policy evaluation |
-| `POST` | `/api/applications/{id}/chat` | Send chat message with context |
-| `GET` | `/api/applications/{id}/conversations` | List chat sessions for an application |
-| `GET` | `/api/applications/{id}/conversations/{chat_id}` | Get specific chat session |
-| `DELETE` | `/api/applications/{id}/conversations/{chat_id}` | Delete a chat session |
-| `GET` | `/api/conversations` | List all conversations across applications |
-| `POST` | `/api/rag/index` | Index all underwriting policies for RAG |
-| `GET` | `/api/rag/stats` | Get RAG index statistics |
-| `POST` | `/api/rag/query` | Query policies using semantic search |
-
----
-
-## Configuration
-
-### Environment Variables
-
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `AZURE_CONTENT_UNDERSTANDING_ENDPOINT` | Yes | - | Azure AI Content Understanding endpoint |
-| `AZURE_CONTENT_UNDERSTANDING_API_KEY` | Conditional | - | API key (if not using Azure AD) |
-| `AZURE_CONTENT_UNDERSTANDING_USE_AZURE_AD` | No | `true` | Use Azure AD authentication |
-| `AZURE_OPENAI_ENDPOINT` | Yes | - | Azure OpenAI endpoint |
-| `AZURE_OPENAI_API_KEY` | Yes | - | Azure OpenAI API key |
-| `AZURE_OPENAI_DEPLOYMENT_NAME` | Yes | - | GPT-4.1 deployment name |
-| `AZURE_OPENAI_API_VERSION` | No | `2024-10-21` | Azure OpenAI API version |
-| `UW_APP_STORAGE_ROOT` | No | `data` | Local storage path for application data |
-| `UW_APP_PROMPTS_ROOT` | No | `prompts` | Path to prompts and policies directory |
-| `STORAGE_BACKEND` | No | `local` | Storage backend (`local` or `azure_blob`) |
-| `AZURE_STORAGE_ACCOUNT_NAME` | Conditional | - | Azure storage account name (if using azure_blob) |
-| `AZURE_STORAGE_ACCOUNT_KEY` | Conditional | - | Azure storage account key (if using azure_blob) |
-| `AZURE_STORAGE_CONNECTION_STRING` | Conditional | - | Azure storage connection string (alternative to account name/key) |
-| `AZURE_STORAGE_CONTAINER_NAME` | No | `workbenchiq-data` | Azure blob container name |
-| `DATABASE_BACKEND` | No | `json` | Database backend (`json` or `postgresql`) |
-| `POSTGRESQL_HOST` | Conditional | - | PostgreSQL host (if using postgresql backend) |
-| `POSTGRESQL_PORT` | No | `5432` | PostgreSQL port |
-| `POSTGRESQL_DATABASE` | Conditional | - | PostgreSQL database name |
-| `POSTGRESQL_USER` | Conditional | - | PostgreSQL username |
-| `POSTGRESQL_PASSWORD` | Conditional | - | PostgreSQL password |
-| `POSTGRESQL_SSL_MODE` | No | - | SSL mode (`require`, `verify-full`, etc.) |
-| `POSTGRESQL_SCHEMA` | No | `public` | PostgreSQL schema for RAG tables |
-| `RAG_ENABLED` | No | `false` | Enable RAG-powered policy search |
-| `RAG_TOP_K` | No | `5` | Number of policy chunks to retrieve |
-| `RAG_SIMILARITY_THRESHOLD` | No | `0.5` | Minimum similarity score for results |
-| `EMBEDDING_MODEL` | No | `text-embedding-3-small` | Azure OpenAI embedding model name |
-| `EMBEDDING_DEPLOYMENT` | No | Same as model | Azure OpenAI embedding deployment name |
-| `EMBEDDING_DIMENSIONS` | No | `1536` | Embedding vector dimensions |
-
-### Storage Configuration
-
-WorkbenchIQ supports two storage backends:
-
-**Local Storage (Default)**
-
-No additional configuration needed. Files are stored in the local `data/` directory.
-
-```env
-STORAGE_BACKEND=local
-UW_APP_STORAGE_ROOT=data
-```
-
-**Azure Blob Storage**
-
-For production deployments, you can use Azure Blob Storage:
-
-```env
-STORAGE_BACKEND=azure_blob
-
-# Option 1: Account name and key
-AZURE_STORAGE_ACCOUNT_NAME=mystorageaccount
-AZURE_STORAGE_ACCOUNT_KEY=your-storage-account-key
-
-# Option 2: Connection string (alternative)
-# AZURE_STORAGE_CONNECTION_STRING=DefaultEndpointsProtocol=https;AccountName=...
-
-# Container name (optional, defaults to workbenchiq-data)
-AZURE_STORAGE_CONTAINER_NAME=workbenchiq-data
-```
-
-The container will be automatically created if it doesn't exist. See [quickstart.md](specs/003-azure-blob-storage-integration/quickstart.md) for detailed setup instructions.
-
-### PostgreSQL RAG Configuration *(Optional)*
-
-For enhanced policy search with semantic retrieval, you can enable the RAG (Retrieval-Augmented Generation) feature using Azure PostgreSQL Flexible Server with pgvector:
-
-**Prerequisites:**
-- Azure PostgreSQL Flexible Server (v15+)
-- Extensions enabled: `vector` (pgvector), `pg_trgm`
-- Azure OpenAI embedding model deployed (e.g., `text-embedding-3-small`)
-
-**Quick Setup:**
-
-```bash
-# Run the setup script to provision Azure PostgreSQL and create schema
-uv run python scripts/setup_postgresql_rag.py
-
-# Index existing policies
-uv run python scripts/index_policies.py
-```
-
-**Manual Configuration:**
-
-```env
-# Enable PostgreSQL backend
-DATABASE_BACKEND=postgresql
-
-# PostgreSQL connection
-POSTGRESQL_HOST=your-server.postgres.database.azure.com
-POSTGRESQL_PORT=5432
-POSTGRESQL_DATABASE=workbenchiq
-POSTGRESQL_USER=your_admin_user
-POSTGRESQL_PASSWORD=your_password
-POSTGRESQL_SSL_MODE=require
-
-# Enable RAG
-RAG_ENABLED=true
-RAG_TOP_K=5
-RAG_SIMILARITY_THRESHOLD=0.5
-
-# Embedding model (must match your Azure OpenAI deployment)
-EMBEDDING_MODEL=text-embedding-3-small
-EMBEDDING_DEPLOYMENT=text-embedding-3-small
-EMBEDDING_DIMENSIONS=1536
-```
-
-**How RAG Works:**
-
-1. **Indexing** - Policies are chunked (500 tokens, 50 overlap) and embedded using Azure OpenAI
-2. **Storage** - Chunks stored in PostgreSQL with pgvector HNSW index for fast similarity search
-3. **Query** - User questions are embedded and matched against policy chunks
-4. **Hybrid Search** - Combines vector similarity with keyword matching (pg_trgm) for best results
-5. **Augmentation** - Retrieved policy context is injected into chat prompts for grounded responses
-
-**Admin Panel Features:**
-- View index statistics (total chunks, last indexed time)
-- Manual reindex button for underwriting policies
-- Automatic reindexing when policies are created/updated/deleted
-
-See [spec.md](specs/006-azure-postgresql-rag-integration/spec.md) for detailed architecture documentation.
-
-### Azure Cosmos DB *(Agent Observability)*
-
-When multi-agent execution is enabled (`AGENT_EXECUTION_ENABLED=true`), WorkbenchIQ can persist agent execution data to Azure Cosmos DB for long-term observability, token tracking, and evaluation storage.
-
-**Containers Created Automatically:**
-
-The following containers are auto-created on startup using `create_container_if_not_exists`:
-
-| Container | Partition Key | Purpose |
-|-----------|--------------|---------|
-| `underwriting_agent_runs` | `/application_id` | Complete agent execution records |
-| `token_tracking` | `/execution_id` | Token usage telemetry per agent |
-| `evaluations` | `/evaluation_id` | Agent evaluation results |
-
-**Azure Portal Setup:**
-
-1. Create an Azure Cosmos DB account (NoSQL API):
-   ```bash
-   az cosmosdb create \
-     --name your-cosmos-account \
-     --resource-group your-rg \
-     --kind GlobalDocumentDB \
-     --default-consistency-level Session \
-     --locations regionName="East US" failoverPriority=0
-   ```
-
-2. Assign yourself the "Cosmos DB Built-in Data Contributor" role:
-   ```bash
-   az cosmosdb sql role assignment create \
-     --account-name your-cosmos-account \
-     --resource-group your-rg \
-     --role-definition-name "Cosmos DB Built-in Data Contributor" \
-     --principal-id $(az ad signed-in-user show --query id -o tsv) \
-     --scope "/"
-   ```
-
-3. Add the endpoint to your `.env`:
-   ```env
-   AZURE_COSMOS_ENDPOINT=https://your-cosmos-account.documents.azure.com:443/
-   AZURE_COSMOS_DATABASE_NAME=underwriting-agents
-   AGENT_EXECUTION_ENABLED=true
-   ```
-
-**Configuration Variables:**
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `AZURE_COSMOS_ENDPOINT` | - | Cosmos DB account endpoint |
-| `AZURE_COSMOS_DATABASE_NAME` | `underwriting-agents` | Database name |
-| `AZURE_COSMOS_AGENT_RUNS_CONTAINER` | `underwriting_agent_runs` | Container for execution records |
-| `AZURE_COSMOS_TOKEN_TRACKING_CONTAINER` | `token_tracking` | Container for token usage |
-| `AZURE_COSMOS_EVALUATIONS_CONTAINER` | `evaluations` | Container for evaluations |
-| `AZURE_COSMOS_USE_SERVERLESS` | `true` | Use serverless mode (no provisioned throughput) |
-
-**What Gets Persisted:**
-
-Each agent run document includes:
-- Complete agent execution records with inputs/outputs
-- Agent definitions snapshot (from YAML)
-- Token usage per agent (if available from Foundry SDK)
-- Evaluation metrics (if evaluations are run)
-- Final underwriting decision with confidence score
-- Orchestration summary and errors
-
-**Notes:**
-- Cosmos DB writes happen AFTER orchestration completes (non-blocking)
-- Cosmos errors are logged but don't break the main execution
-- Documents are append-only and immutable
-- No UI changes are required - this is purely for observability
-
-### Adding a New Persona
-
-1. Define field schema in `app/personas.py`:
-
-```python
-MY_PERSONA_FIELD_SCHEMA = {
-    "name": "MyPersonaFields",
-    "fields": {
-        "FieldName": {
-            "type": "string",
-            "description": "Description for extraction",
-            "method": "extract",
-            "estimateSourceAndConfidence": True
-        }
-    }
-}
-```
-
-2. Add prompts for analysis sections
-3. Register in `PERSONA_CONFIGS` dictionary
-4. Create frontend components as needed
-
----
-
-## Development
-
-### Running Tests
-
-```bash
-pytest tests/ -v
-```
-
-### Code Formatting
-
-```bash
-# Python
-black app/ api_server.py
-ruff check app/ api_server.py --fix
-
-# Frontend
-cd frontend
-npm run lint
-```
-
-### Building for Production
-
-```bash
-# Frontend build
-cd frontend
-npm run build
-
-# Run production server
-uvicorn api_server:app --host 0.0.0.0 --port 8000
-```
-
----
-
-## Troubleshooting
-
-### Common Issues
-
-| Issue | Cause | Solution |
-|-------|-------|----------|
-| "Settings incomplete" | Missing environment variables | Check `.env` file, restart API server |
-| 401/403 errors | Invalid API keys | Verify Azure credentials |
-| 404 errors | Wrong endpoint URLs | Remove trailing slashes from endpoints |
-| 429 errors | Rate limiting | Wait and retry, or increase quota |
-| CORS errors | Frontend can't reach API | Ensure API runs on port 8000 |
-
-### Logs
-
-- API logs: Check terminal running `uvicorn`
-- Frontend logs: Browser developer console
-- Azure logs: Azure Portal > Monitor > Logs
+| `POST` | `/api/applications/{id}/extract` | Run document extraction |
+| `POST` | `/api/applications/{id}/analyze` | Run AI analysis |
+| `POST` | `/api/applications/{id}/risk-analysis` | Run multi-agent risk analysis |
+
+### End User Flow
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/end-user/start-session` | Start end user session |
+| `POST` | `/api/end-user/upload-health-data` | Upload Apple Health data |
+| `POST` | `/api/end-user/submit-application` | Submit application |
+| `GET` | `/api/end-user/applications` | List user's applications |
+
+### Agent Observability
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/agent-runs` | List agent execution runs |
+| `GET` | `/api/agent-runs/{workflow_id}` | Get specific run details |
+| `GET` | `/api/agent-runs/{workflow_id}/evaluations` | Get evaluation results |
+
+### Chat & RAG
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/applications/{id}/chat` | Send chat message |
+| `GET` | `/api/applications/{id}/conversations` | List chat sessions |
+| `POST` | `/api/rag/query` | Query policies (RAG) |
 
 ---
 
 ## Contributing
-
-We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
 
 1. Fork the repository
 2. Create a feature branch (`git checkout -b feature/amazing-feature`)
@@ -784,9 +610,18 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ---
 
-## Acknowledgments
+## Support
 
-- Built with [Azure AI Content Understanding](https://azure.microsoft.com/en-us/products/ai-services/ai-document-intelligence)
-- Powered by [Azure OpenAI Service](https://azure.microsoft.com/en-us/products/ai-services/openai-service)
-- UI built with [Next.js](https://nextjs.org/) and [Tailwind CSS](https://tailwindcss.com/)
-- API powered by [FastAPI](https://fastapi.tiangolo.com/)
+- **Documentation**: See `docs/` folder for detailed guides
+- **Issues**: Open a GitHub issue for bugs or feature requests
+- **Discussions**: Use GitHub Discussions for questions
+
+---
+
+<div align="center">
+
+**Built with ❤️ using Azure AI Services**
+
+[Azure AI Foundry](https://ai.azure.com) | [Azure OpenAI](https://azure.microsoft.com/products/ai-services/openai-service/) | [Azure AI Content Understanding](https://azure.microsoft.com/products/ai-services/)
+
+</div>
