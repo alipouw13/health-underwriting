@@ -125,6 +125,7 @@ export type RiskLevel =
 export interface FinalDecision {
   decision_id: string;
   patient_id: string;
+  patient_name?: string;  // Optional patient name for display
   status: DecisionStatus;
   risk_level: RiskLevel;
   approved: boolean;

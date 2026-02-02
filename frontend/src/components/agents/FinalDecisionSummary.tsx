@@ -78,7 +78,9 @@ export default function FinalDecisionSummary({
                 {formatDecisionStatus(final_decision.status)}
               </h2>
               <p className="text-sm text-slate-600">
-                Patient: <span className="font-mono">{final_decision.patient_id}</span>
+                Patient: <span className={final_decision.patient_name ? "" : "font-mono"}>
+                  {final_decision.patient_name || final_decision.patient_id}
+                </span>
               </p>
             </div>
           </div>

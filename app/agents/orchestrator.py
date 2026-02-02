@@ -175,6 +175,7 @@ class OrchestratorInput(AgentInput):
     """Input schema for OrchestratorAgent."""
     
     patient_id: str = Field(..., description="Patient ID to process")
+    patient_name: Optional[str] = Field(None, description="Patient name for display (optional)")
     health_metrics: Optional[HealthMetrics] = Field(None, description="Override health metrics (optional)")
     policy_rules: Optional[PolicyRuleSet] = Field(None, description="Override policy rules (optional)")
     
@@ -205,6 +206,7 @@ class FinalDecision(AgentInput):
     
     decision_id: str = Field(default_factory=lambda: str(uuid4()), description="Unique decision ID")
     patient_id: str = Field(..., description="Patient ID")
+    patient_name: Optional[str] = Field(default=None, description="Patient name for display")
     status: DecisionStatus = Field(..., description="Decision status")
     risk_level: RiskLevel = Field(..., description="Final risk level")
     approved: bool = Field(..., description="Whether application is approved")
@@ -574,8 +576,18 @@ class OrchestratorAgent:
                 {"workflow_id": workflow_id, "failed_agent": e.agent_id}
             )
         
+        # Extract patient name from llm_outputs if available
+        patient_name = validated_input.patient_name
+        if not patient_name and validated_input.llm_outputs:
+            # Try different paths where patient name might be stored
+            patient_name = (
+                validated_input.llm_outputs.get("patient_profile", {}).get("name") or
+                validated_input.llm_outputs.get("patient_summary", {}).get("name") or
+                validated_input.llm_outputs.get("application_summary", {}).get("customer_profile", {}).get("parsed", {}).get("full_name")
+            )
+        
         # Produce final decision (SUMMARIZE ONLY - DO NOT ALTER CONCLUSIONS)
-        final_decision = self._produce_final_decision(context, validated_input.patient_id)
+        final_decision = self._produce_final_decision(context, validated_input.patient_id, patient_name)
         
         # Calculate overall confidence
         confidence_score = self._calculate_confidence(context)
@@ -839,8 +851,18 @@ class OrchestratorAgent:
             self.logger.error(f"Agent execution failed: {e}")
             raise
         
+        # Extract patient name from llm_outputs if available
+        patient_name = validated_input.patient_name
+        if not patient_name and validated_input.llm_outputs:
+            # Try different paths where patient name might be stored
+            patient_name = (
+                validated_input.llm_outputs.get("patient_profile", {}).get("name") or
+                validated_input.llm_outputs.get("patient_summary", {}).get("name") or
+                validated_input.llm_outputs.get("application_summary", {}).get("customer_profile", {}).get("parsed", {}).get("full_name")
+            )
+        
         # Produce final decision
-        final_decision = self._produce_final_decision(context, validated_input.patient_id)
+        final_decision = self._produce_final_decision(context, validated_input.patient_id, patient_name)
         confidence_score = self._calculate_confidence(context)
         explanation = self._generate_explanation(context, final_decision)
         
@@ -2013,6 +2035,7 @@ Return JSON:
         self,
         context: ExecutionContext,
         patient_id: str,
+        patient_name: Optional[str] = None,
     ) -> FinalDecision:
         """
         Produce final underwriting decision.
@@ -2061,6 +2084,7 @@ Return JSON:
         
         return FinalDecision(
             patient_id=patient_id,
+            patient_name=patient_name,
             status=status,
             risk_level=risk_level,
             approved=approved,

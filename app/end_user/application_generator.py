@@ -10,6 +10,7 @@ the same Content Understanding pipeline as admin uploads.
 
 import json
 import logging
+import random
 from datetime import date, datetime
 from typing import Any, Dict, Optional
 
@@ -360,6 +361,7 @@ async def generate_and_extract_application(
                     "occupation": occupation,
                     "smoking_status": smoking_status,
                     "alcohol_use": "occasional",
+                    "summary": summary_text,  # Summary inside parsed for PatientSummary component
                     "key_fields": [
                         {"label": "Full Name", "value": full_name},
                         {"label": "Age", "value": str(age)},
@@ -367,7 +369,7 @@ async def generate_and_extract_application(
                         {"label": "Occupation", "value": occupation},
                     ],
                 },
-                "summary": summary_text,
+                "summary": summary_text,  # Also keep at this level for backward compatibility
             },
         },
         "patient_summary": {
@@ -392,18 +394,33 @@ async def generate_and_extract_application(
             "coverage_amount_requested": coverage_amount,
         },
         "health_metrics": apple_health_data,
-        # Medical summary with lab results
+        # Medical summary with lab results - structured for panel extraction
         "medical_summary": {
-            "cholesterol": {
+            # Cholesterol data - structured for LabResultsPanel
+            "high_cholesterol": {
                 "parsed": {
                     "lipid_panels": [
                         {
                             "total_cholesterol": cholesterol_total,
+                            "ldl": round(cholesterol_total * 0.6 + random.uniform(-10, 10), 1),  # ~60% of total
+                            "hdl": round(50 + random.uniform(-5, 15), 1),  # 45-65 typical
+                            "triglycerides": round(120 + (bmi - 22) * 5 + random.uniform(-20, 20), 1),
                             "date": datetime.now().strftime("%Y-%m-%d"),
                         }
-                    ]
+                    ],
+                    "summary": f"Total cholesterol: {cholesterol_total} mg/dL",
+                    "risk_assessment": "normal" if cholesterol_total < 200 else "borderline" if cholesterol_total < 240 else "elevated",
                 }
             },
+            # Blood pressure - structured for LabResultsPanel
+            "hypertension": {
+                "parsed": {
+                    "bp_readings": _generate_bp_readings(bmi, age),
+                    "summary": "Blood pressure within normal range" if bmi < 27 else "Borderline elevated blood pressure",
+                    "risk_assessment": "normal" if bmi < 27 else "monitor",
+                }
+            },
+            # Diabetes/glucose - structured for LabResultsPanel
             "diabetes": {
                 "parsed": {
                     "glucose_readings": [
@@ -412,7 +429,35 @@ async def generate_and_extract_application(
                             "date": datetime.now().strftime("%Y-%m-%d"),
                             "test_type": "fasting"
                         }
-                    ]
+                    ],
+                    "a1c_readings": [
+                        {
+                            "value": round(5.2 + (glucose_fasting - 90) * 0.02, 1),
+                            "date": datetime.now().strftime("%Y-%m-%d"),
+                        }
+                    ],
+                    "summary": f"Fasting glucose: {glucose_fasting} mg/dL",
+                }
+            },
+            # Family history - structured for FamilyHistoryPanel
+            "family_history": {
+                "parsed": {
+                    "relatives": _generate_family_history_relatives(age),
+                    "summary": _generate_family_history_summary(age),
+                    "risk_assessment": "low" if age < 40 else "moderate",
+                }
+            },
+            # Other medical findings - structured for SubstanceUsePanel
+            "other_medical_findings": {
+                "parsed": {
+                    "lifestyle": {
+                        "smoking_status": _get_smoking_status_text(smoking_status),
+                        "alcohol": _get_alcohol_status_text(),
+                        "marijuana": "No marijuana use reported",
+                        "other": "No other substance use reported",
+                    },
+                    "allergies": _generate_allergies(),
+                    "medications": [],
                 }
             },
         },
@@ -423,7 +468,13 @@ async def generate_and_extract_application(
                 "event": "Apple Health data connected",
                 "category": "health_data",
                 "description": f"Health metrics synced: BMI {bmi:.1f}, Avg steps {apple_health_data.get('daily_steps_avg', 8000):,}/day"
-            }
+            },
+            {
+                "date": datetime.now().strftime("%Y-%m-%d"),
+                "event": "Lab results recorded",
+                "category": "lab_results",
+                "description": f"Cholesterol: {cholesterol_total} mg/dL, Glucose: {glucose_fasting} mg/dL"
+            },
         ],
         "diagnoses_conditions": [],
         "medications": [],
@@ -443,9 +494,8 @@ async def generate_and_extract_application(
                 "status": "normal" if glucose_fasting < 100 else "prediabetic" if glucose_fasting < 126 else "diabetic"
             },
         ],
-        # Family history (generate some common items)
+        # Keep these for backward compatibility
         "family_history": _generate_family_history(age),
-        # Substance use
         "substance_use": {
             "tobacco": {"status": "never" if smoking_status == "non-smoker" else "former", "details": smoking_status},
             "alcohol": {"status": "occasional", "details": "Social drinker, 2-3 drinks per week"},
@@ -477,6 +527,39 @@ async def generate_and_extract_application(
         "policy_type": policy_type,
         "coverage_amount": coverage_amount,
         "data_source": "apple_health_llm_generated",
+        # Substance use fields for SubstanceUsePanel
+        "SmokingStatus": {
+            "field_name": "SmokingStatus",
+            "value": _get_smoking_status_text(smoking_status),
+            "confidence": 0.95,
+        },
+        "AlcoholUse": {
+            "field_name": "AlcoholUse", 
+            "value": _get_alcohol_status_text(),
+            "confidence": 0.95,
+        },
+        "DrugUse": {
+            "field_name": "DrugUse",
+            "value": "No illicit drug use reported",
+            "confidence": 0.95,
+        },
+        # Lab results for LabResultsPanel
+        "LipidPanelResults": {
+            "field_name": "LipidPanelResults",
+            "value": f"Total Cholesterol: {cholesterol_total} mg/dL",
+            "confidence": 0.95,
+        },
+        "BloodPressureReadings": {
+            "field_name": "BloodPressureReadings",
+            "value": _generate_bp_readings(bmi, age),
+            "confidence": 0.95,
+        },
+        # Family history for FamilyHistoryPanel
+        "FamilyHistorySummary": {
+            "field_name": "FamilyHistorySummary",
+            "value": _generate_family_history_summary(age),
+            "confidence": 0.95,
+        },
     }
     
     return {
@@ -513,3 +596,98 @@ def _generate_family_history(age: int) -> list:
         })
     
     return history
+
+
+def _generate_family_history_relatives(age: int) -> list:
+    """Generate family history relatives in the format expected by FamilyHistoryPanel."""
+    import random
+    
+    possible_relatives = [
+        {"relationship": "Father", "condition": "Hypertension", "age_at_onset": "52", "notes": "Controlled with medication"},
+        {"relationship": "Mother", "condition": "Type 2 Diabetes", "age_at_onset": "58", "notes": "Diet-controlled"},
+        {"relationship": "Paternal Grandfather", "condition": "Heart Disease", "age_at_death": "72", "notes": "MI at age 68"},
+        {"relationship": "Maternal Grandmother", "condition": "Breast Cancer", "age_at_onset": "65", "notes": "Survivor"},
+        {"relationship": "Father", "condition": "High Cholesterol", "age_at_onset": "45", "notes": "On statin therapy"},
+        {"relationship": "Mother", "condition": "Osteoporosis", "age_at_onset": "62", "notes": ""},
+        {"relationship": "Brother", "condition": "None reported", "notes": "Healthy, age 42"},
+        {"relationship": "Sister", "condition": "None reported", "notes": "Healthy, age 38"},
+    ]
+    
+    # Select 2-4 relatives based on age
+    num_items = 2 if age < 35 else 3 if age < 50 else random.randint(3, 4)
+    selected = random.sample(possible_relatives, min(num_items, len(possible_relatives)))
+    
+    return selected
+
+
+def _generate_family_history_summary(age: int) -> str:
+    """Generate a summary of family history."""
+    if age < 35:
+        return "Limited family history of common conditions. Father has hypertension."
+    elif age < 50:
+        return "Family history notable for cardiovascular disease and diabetes. Both parents have chronic conditions managed with medication."
+    else:
+        return "Significant family history including cardiovascular disease, diabetes, and cancer. Multiple first-degree relatives affected."
+
+
+def _generate_bp_readings(bmi: float, age: int) -> list:
+    """Generate realistic blood pressure readings."""
+    import random
+    
+    # Base BP increases with BMI and age
+    base_systolic = 110 + (bmi - 22) * 2 + (age - 30) * 0.3
+    base_diastolic = 70 + (bmi - 22) * 1 + (age - 30) * 0.2
+    
+    readings = []
+    for i in range(2):  # Generate 2 readings
+        systolic = round(base_systolic + random.uniform(-8, 8))
+        diastolic = round(base_diastolic + random.uniform(-5, 5))
+        readings.append({
+            "systolic": systolic,
+            "diastolic": diastolic,
+            "date": datetime.now().strftime("%Y-%m-%d"),
+        })
+    
+    return readings
+
+
+def _get_smoking_status_text(smoking_status: str) -> str:
+    """Get descriptive text for smoking status."""
+    if smoking_status == "non-smoker":
+        return "Non-smoker. Never used tobacco products."
+    elif smoking_status == "former smoker":
+        return "Former smoker. Quit 5+ years ago. No current tobacco use."
+    else:
+        return f"{smoking_status.capitalize()}"
+
+
+def _get_alcohol_status_text() -> str:
+    """Get descriptive text for alcohol use."""
+    import random
+    options = [
+        "Social drinker. 2-3 alcoholic beverages per week.",
+        "Occasional drinker. 1-2 drinks per week on average.",
+        "Light social drinker. Wine with dinner occasionally.",
+        "Moderate alcohol consumption. 3-5 drinks per week.",
+    ]
+    return random.choice(options)
+
+
+def _generate_allergies() -> list:
+    """Generate realistic allergies list."""
+    import random
+    
+    possible_allergies = [
+        {"allergen": "Penicillin", "reaction": "Rash", "severity": "moderate"},
+        {"allergen": "Shellfish", "reaction": "Anaphylaxis", "severity": "severe"},
+        {"allergen": "Pollen", "reaction": "Seasonal allergies", "severity": "mild"},
+        {"allergen": "Dust mites", "reaction": "Respiratory", "severity": "mild"},
+        {"allergen": "Latex", "reaction": "Contact dermatitis", "severity": "moderate"},
+    ]
+    
+    # 60% chance of having no allergies, 40% chance of 1-2 allergies
+    if random.random() < 0.6:
+        return []
+    
+    num_allergies = random.randint(1, 2)
+    return random.sample(possible_allergies, num_allergies)
