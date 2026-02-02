@@ -1,9 +1,10 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { Shield, FileText, AlertTriangle, CheckCircle, Clock, Play, Loader2, Sparkles, Users } from 'lucide-react';
+import { Shield, FileText, AlertTriangle, CheckCircle, Clock, Play, Loader2, Sparkles, Users, Bot } from 'lucide-react';
 import type { ApplicationMetadata, RiskFinding } from '@/lib/types';
 import AgentProgressTracker, { type AgentProgressEvent } from './agents/AgentProgressTracker';
+import AgentInsightsModal from './agents/AgentInsightsModal';
 
 interface PolicySummaryPanelProps {
   application: ApplicationMetadata;
@@ -57,6 +58,7 @@ export default function PolicySummaryPanel({
   const [isRunningAnalysis, setIsRunningAnalysis] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [agentProgress, setAgentProgress] = useState<AgentProgressEvent[]>([]);
+  const [showAgentInsights, setShowAgentInsights] = useState(false);
   const eventSourceRef = useRef<EventSource | null>(null);
 
   const riskAnalysis = application.risk_analysis?.parsed;
@@ -245,8 +247,13 @@ export default function PolicySummaryPanel({
   const riskInfo = getRiskLevelInfo(riskAnalysis.overall_risk_level);
   const topFindings = (riskAnalysis.findings || []).slice(0, 3);
   const premium = riskAnalysis.premium_recommendation;
+  
+  // Get agent execution data if available
+  const agentExecution = application.agent_execution;
+  const orchestratorOutput = agentExecution?.orchestrator_output;
 
   return (
+    <>
     <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
       {/* Header with Risk Rating */}
       <div className={`px-6 py-4 ${riskInfo.bgColor}`}>
@@ -280,22 +287,48 @@ export default function PolicySummaryPanel({
         </div>
       </div>
 
-      {/* Overall Rationale */}
-      {riskAnalysis.overall_rationale && (
-        <div className="px-6 py-4 border-b border-slate-100">
-          <div className="flex items-start gap-3">
-            <Shield className="w-5 h-5 text-indigo-500 mt-0.5 flex-shrink-0" />
-            <div className="flex-1">
-              <p className="text-sm text-slate-700">
-                {riskAnalysis.overall_rationale}
-              </p>
+      {/* Show streaming progress when re-running analysis */}
+      {isRunningAnalysis ? (
+        <div className="px-6 py-6">
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-sm text-blue-600 font-medium">
+                <Users className="w-4 h-4" />
+                <span>Multi-Agent Orchestration Running</span>
+              </div>
             </div>
+            {/* Full-width agent progress tracker */}
+            <AgentProgressTracker progress={agentProgress} compact={false} showTitle={false} />
+            {agentProgress.length > 0 ? (
+              <div className="text-xs text-slate-500">
+                Step {Math.max(...agentProgress.map(p => p.step_number), 1)} of 3 agents processing...
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <Loader2 className="w-4 h-4 text-blue-500 animate-spin" />
+                <span className="text-xs text-slate-500">Initializing agents...</span>
+              </div>
+            )}
           </div>
         </div>
-      )}
+      ) : (
+        <>
+          {/* Overall Rationale */}
+          {riskAnalysis.overall_rationale && (
+            <div className="px-6 py-4 border-b border-slate-100">
+              <div className="flex items-start gap-3">
+                <Shield className="w-5 h-5 text-indigo-500 mt-0.5 flex-shrink-0" />
+                <div className="flex-1">
+                  <p className="text-sm text-slate-700">
+                    {riskAnalysis.overall_rationale}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
 
-      {/* Premium Recommendation */}
-      {premium && (
+          {/* Premium Recommendation */}
+          {premium && (
         <div className="px-6 py-4 border-b border-slate-100 bg-slate-50">
           <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
             Premium Recommendation
@@ -367,6 +400,8 @@ export default function PolicySummaryPanel({
           </div>
         )}
       </div>
+        </>
+      )}
 
       {/* Action Buttons */}
       <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex items-center gap-3">
@@ -377,6 +412,19 @@ export default function PolicySummaryPanel({
           <FileText className="w-4 h-4" />
           View Full Report
         </button>
+        
+        {/* Agent Insights Button - only shown after analysis is complete */}
+        {orchestratorOutput && (
+          <button
+            onClick={() => setShowAgentInsights(true)}
+            className="inline-flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100 transition-colors"
+            title="View agent execution details"
+          >
+            <Bot className="w-4 h-4" />
+            Agent Insights
+          </button>
+        )}
+        
         <button
           onClick={handleRunRiskAnalysis}
           disabled={isRunningAnalysis}
@@ -391,5 +439,16 @@ export default function PolicySummaryPanel({
         </button>
       </div>
     </div>
+    
+    {/* Agent Insights Modal */}
+    {orchestratorOutput && (
+      <AgentInsightsModal
+        isOpen={showAgentInsights}
+        onClose={() => setShowAgentInsights(false)}
+        orchestratorOutput={orchestratorOutput}
+        applicationId={application.id}
+      />
+    )}
+    </>
   );
 }

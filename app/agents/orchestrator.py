@@ -226,6 +226,7 @@ class OrchestratorOutput(AgentOutput):
     execution_records: List[AgentExecutionRecord] = Field(..., description="Records of all agent executions")
     workflow_id: str = Field(default_factory=lambda: str(uuid4()), description="Workflow execution ID")
     total_execution_time_ms: float = Field(..., description="Total orchestration time")
+    execution_source: str = Field(default="underwriter", description="Source: 'underwriter' or 'end_user'")
 
 
 # =============================================================================
@@ -582,6 +583,13 @@ class OrchestratorAgent:
         # Generate explanation
         explanation = self._generate_explanation(context, final_decision)
         
+        # Determine execution source (end_user vs underwriter)
+        execution_source = "underwriter"
+        if validated_input.llm_outputs:
+            if validated_input.llm_outputs.get("source") == "end_user":
+                execution_source = "end_user"
+                self.logger.info("END USER AGENT EXECUTION STARTED")
+        
         # Build output
         output = OrchestratorOutput(
             agent_id=self.agent_id,
@@ -592,9 +600,14 @@ class OrchestratorAgent:
             execution_records=context.get_records(),
             workflow_id=workflow_id,
             total_execution_time_ms=context.get_total_time_ms(),
+            execution_source=execution_source,
         )
         
-        self.logger.info(f"Workflow {workflow_id} completed in {output.total_execution_time_ms:.2f}ms")
+        # Log completion with source
+        if execution_source == "end_user":
+            self.logger.info("END USER AGENT EXECUTION COMPLETED")
+        
+        self.logger.info(f"Workflow {workflow_id} completed in {output.total_execution_time_ms:.2f}ms (source={execution_source})")
         return output
     
     async def run_with_progress(
@@ -633,6 +646,15 @@ class OrchestratorAgent:
             validated_input.application_data is not None or
             validated_input.llm_outputs is not None
         )
+        
+        # Check if this is an end-user execution
+        is_end_user = (
+            validated_input.llm_outputs is not None and 
+            validated_input.llm_outputs.get("source") == "end_user"
+        )
+        
+        if is_end_user:
+            self.logger.info("END USER AGENT EXECUTION STARTED")
         
         if has_real_data:
             self.logger.info("=" * 60)
@@ -822,6 +844,13 @@ class OrchestratorAgent:
         confidence_score = self._calculate_confidence(context)
         explanation = self._generate_explanation(context, final_decision)
         
+        # Determine execution source (end_user vs underwriter)
+        execution_source = "underwriter"
+        if validated_input.llm_outputs:
+            if validated_input.llm_outputs.get("source") == "end_user":
+                execution_source = "end_user"
+                self.logger.info("END USER AGENT EXECUTION COMPLETED")
+        
         output = OrchestratorOutput(
             agent_id=self.agent_id,
             success=True,
@@ -831,9 +860,10 @@ class OrchestratorAgent:
             execution_records=context.get_records(),
             workflow_id=workflow_id,
             total_execution_time_ms=context.get_total_time_ms(),
+            execution_source=execution_source,
         )
         
-        self.logger.info(f"Workflow {workflow_id} completed in {output.total_execution_time_ms:.2f}ms")
+        self.logger.info(f"Workflow {workflow_id} completed in {output.total_execution_time_ms:.2f}ms (source={execution_source})")
         
         # Yield the final output
         yield output
@@ -1368,9 +1398,28 @@ Criteria:"""
         base_premium = patient_profile.coverage_amount_requested * 0.002  # 0.2% base rate
         
         if self._use_foundry:
-            # Build comprehensive prompt for Foundry agent
-            prompt = f"""You are an Underwriting Rules Specialist. Validate the preliminary risk assessment from PolicyRiskAgent
-against business rules and determine the final premium adjustment and approval status.
+            # Import knowledge retrieval service for logging
+            from app.agents.knowledge_retrieval import get_knowledge_service
+            knowledge_service = get_knowledge_service()
+            
+            # Log retrieval start
+            knowledge_service.log_retrieval_start(
+                query=f"premium adjustment rules for risk level {preliminary_risk_level}",
+                context={
+                    "risk_delta_score": preliminary_adjustment,
+                    "risk_level": preliminary_risk_level,
+                }
+            )
+            
+            # Build prompt that REQUIRES knowledge retrieval (no hardcoded rules)
+            prompt = f"""You are an Underwriting Rules Specialist with access to the official business rules document.
+
+## CRITICAL REQUIREMENT: KNOWLEDGE RETRIEVAL
+You MUST use the file_search tool to retrieve rules from the "health_underwriting_business_rules" document.
+DO NOT guess thresholds. DO NOT infer adjustments. DO NOT use default values.
+Every rule you apply MUST be cited with the specific section from the document.
+
+If file_search returns NO relevant rules: Set approved=false and explain the retrieval failure.
 
 ## Preliminary Risk Assessment (from PolicyRiskAgent):
 - Risk Level: {preliminary_risk_level}
@@ -1394,39 +1443,37 @@ against business rules and determine the final premium adjustment and approval s
 - Coverage Amount: ${patient_profile.coverage_amount_requested:,.2f}
 - Base Premium: ${base_premium:.2f}
 
-## Business Rules to Validate:
+## YOUR TASK:
+1. FIRST: Use file_search to find rules for:
+   - Premium adjustment thresholds based on risk factors
+   - Smoker surcharge rules
+   - BMI-related adjustments
+   - Chronic condition adjustments
+   - Referral trigger conditions
 
-### Risk Classification:
-- LOW RISK (0% adjustment): No significant risk indicators, non-smoker, BMI 18.5-25
-- MODERATE RISK (+10-25% adjustment): 1-2 minor risk factors, former smoker, BMI 25-30
-- HIGH RISK (+25-50% adjustment): Multiple risk factors, current smoker, BMI >30
-- VERY HIGH RISK (+50-100% adjustment): Severe uncontrolled conditions, multiple high-severity indicators
+2. THEN: Apply ONLY the rules you retrieved from the document
+   - Cite each rule with "Per Section X.Y: ..."
+   - If a rule is not in the document, do not apply it
 
-### Compliance Rules:
-1. Premium adjustments must not exceed 100% for standard policies
-2. Age-based adjustments must follow actuarial guidelines
-3. Smoker surcharge: Current smokers +25% minimum
-4. BMI adjustments: >30 BMI adds +10-15%
-5. Chronic conditions (hypertension, diabetes) add +5-15% each
-
-### Referral Triggers:
-Flag for manual review if: adjustment >50%, age >70 with multiple factors, conflicting indicators
-
-Return your analysis as JSON:
+3. FINALLY: Return your analysis as JSON with:
 {{
   "approved": true/false,
   "risk_level": "low" | "moderate" | "high" | "very_high" | "decline",
-  "premium_adjustment_percentage": 0-100,
+  "premium_adjustment_percentage": <from document rules>,
   "base_premium_annual": {base_premium:.2f},
-  "adjusted_premium_annual": <calculated amount>,
-  "rationale": "Detailed explanation of how rules were applied",
-  "compliance_checks": ["check1: passed/failed", "check2: passed/failed"],
-  "violations_found": ["violation1", "violation2"],
+  "adjusted_premium_annual": <calculated>,
+  "rationale": "Per Section X.Y: [rule]. Per Section X.Z: [rule]...",
+  "compliance_checks": ["Section X.Y check: passed/failed"],
+  "violations_found": [],
   "referral_required": true/false,
-  "referral_reason": "reason if applicable",
-  "triggered_rules": ["rule1", "rule2"],
-  "recommendations": ["recommendation1", "recommendation2"]
-}}"""
+  "referral_reason": "<from document if applicable>",
+  "triggered_rules": ["Section X.Y - Rule Name"],
+  "recommendations": [],
+  "retrieved_chunks_count": <number of chunks from file_search>,
+  "rule_sections_cited": ["Section X.Y", "Section X.Z"]
+}}
+
+IMPORTANT: If retrieved_chunks_count is 0, set approved=false with rationale explaining retrieval failure."""
 
             result = await self._invoke_foundry_agent(
                 "BusinessRulesValidationAgent", 
@@ -1439,11 +1486,46 @@ Return your analysis as JSON:
             )
             parsed = result.get("parsed") or {}
             
+            # Log retrieval results
+            chunks_retrieved = parsed.get("retrieved_chunks_count", 0)
+            rule_sections = parsed.get("rule_sections_cited", [])
+            triggered_rules = parsed.get("triggered_rules", [])
+            
+            if chunks_retrieved > 0:
+                self.logger.info(
+                    "RULE RETRIEVAL SUCCESS: %d chunks retrieved",
+                    chunks_retrieved
+                )
+                for section in rule_sections[:5]:
+                    self.logger.info("RULE APPLIED: %s", section)
+            else:
+                self.logger.error(
+                    "RULE RETRIEVAL FAILED: No chunks retrieved from knowledge source"
+                )
+            
+            # Validate rule application
+            knowledge_service.validate_rule_application(
+                applied_rules=triggered_rules,
+                adjustment_percentage=float(parsed.get("premium_adjustment_percentage", 0)),
+                risk_level=parsed.get("risk_level", "unknown")
+            )
+            
             # Parse Foundry response
             approved = parsed.get("approved", True)
             risk_level_str = parsed.get("risk_level", "moderate").lower()
             adjustment_pct = float(parsed.get("premium_adjustment_percentage", 0))
             adjusted_premium = parsed.get("adjusted_premium_annual") or (base_premium * (1 + adjustment_pct / 100))
+            
+            # Check for retrieval failure - reject if no rules retrieved
+            if chunks_retrieved == 0 and adjustment_pct != 0:
+                self.logger.warning(
+                    "Rejecting adjustment of %.0f%% due to retrieval failure",
+                    adjustment_pct
+                )
+                approved = False
+                parsed["violations_found"] = parsed.get("violations_found", []) + [
+                    "RETRIEVAL_FAILURE: No rules retrieved from knowledge source to justify adjustment"
+                ]
             
             # Ensure compliance checks is a list of strings
             compliance_checks = parsed.get("compliance_checks", [])
@@ -1467,7 +1549,9 @@ Return your analysis as JSON:
             context._outputs["_premium_adjustment_pct"] = adjustment_pct
             context._outputs["_base_premium"] = base_premium
             context._outputs["_adjusted_premium"] = adjusted_premium
-            context._outputs["_triggered_rules"] = parsed.get("triggered_rules", [])
+            context._outputs["_triggered_rules"] = triggered_rules
+            context._outputs["_rule_sections_cited"] = rule_sections
+            context._outputs["_retrieved_chunks_count"] = chunks_retrieved
             context._outputs["_referral_required"] = parsed.get("referral_required", False)
             
         else:
@@ -2208,6 +2292,7 @@ Return JSON:
         from datetime import date
         
         llm_outputs = validated_input.llm_outputs or {}
+        raw_customer_profile = {}
         customer_profile = {}
         medical_summary = {}
         

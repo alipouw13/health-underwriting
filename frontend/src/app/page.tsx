@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Sparkles, FileText } from 'lucide-react';
+import Link from 'next/link';
+import { Sparkles, FileText, User } from 'lucide-react';
 import TopNav from '@/components/TopNav';
 import PatientHeader from '@/components/PatientHeader';
 import PatientSummary from '@/components/PatientSummary';
@@ -396,14 +397,23 @@ export default function Home() {
                 <personaConfig.icon className="w-8 h-8" style={{ color: personaConfig.color }} />
               </div>
               <p className="text-lg mb-2 text-slate-700">No {personaConfig.name.toLowerCase()} applications found</p>
-              <p className="text-sm text-slate-500">Go to the Admin page to upload and process documents</p>
-              <a
-                href="/admin"
-                className="mt-4 inline-block px-4 py-2 text-white rounded-lg transition-colors"
-                style={{ backgroundColor: personaConfig.color }}
-              >
-                Go to Admin
-              </a>
+              <p className="text-sm text-slate-500 mb-6">Go to the Admin page to upload and process documents</p>
+              <div className="flex items-center justify-center gap-4">
+                <a
+                  href="/admin"
+                  className="px-4 py-2 text-white rounded-lg transition-colors"
+                  style={{ backgroundColor: personaConfig.color }}
+                >
+                  Go to Admin
+                </a>
+                <Link
+                  href="/user"
+                  className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
+                >
+                  <User className="w-4 h-4" />
+                  Try Applicant Portal
+                </Link>
+              </div>
             </div>
           </div>
         ) : (

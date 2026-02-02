@@ -2791,6 +2791,434 @@ async def deploy_agents():
         raise HTTPException(status_code=500, detail=f"Agent deployment failed: {str(e)}")
 
 
+# =============================================================================
+# END USER API ENDPOINTS
+# These endpoints support the end-user (applicant) flow with mock Apple Health data
+# IMPORTANT: Uses the SAME agent pipeline as underwriters
+# =============================================================================
+
+class EndUserLoginRequest(BaseModel):
+    """Request model for end-user login."""
+    first_name: str
+    last_name: str
+    date_of_birth: str  # ISO format: YYYY-MM-DD
+    biological_sex: str = "unknown"  # 'male', 'female', 'unknown'
+    # Note: SSN is accepted for demo purposes but NEVER persisted
+    ssn_last_four: Optional[str] = None  # Demo only, not stored
+
+
+class AppleHealthConsentRequest(BaseModel):
+    """Request model for Apple Health consent."""
+    session_id: str
+    consent_granted: bool
+    policy_type: str = "term_life"  # 'term_life', 'whole_life', 'health'
+    coverage_amount: float = 500000.0
+
+
+@app.post("/api/end-user/login")
+async def end_user_login(request: EndUserLoginRequest):
+    """
+    Create an end-user session (demo authentication).
+    
+    DEMO ONLY - No real authentication is performed.
+    SSN is NOT persisted - used only for demo realism.
+    
+    Returns a session with user_id for subsequent calls.
+    """
+    from datetime import date
+    from app.end_user import user_session_store
+    
+    try:
+        # Parse date of birth
+        try:
+            dob = date.fromisoformat(request.date_of_birth)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
+        
+        # Validate age (must be 18+)
+        age = (date.today() - dob).days // 365
+        if age < 18:
+            raise HTTPException(status_code=400, detail="Applicant must be at least 18 years old")
+        if age > 120:
+            raise HTTPException(status_code=400, detail="Invalid date of birth")
+        
+        # Create session (SSN is NOT stored)
+        session = user_session_store.create_session(
+            first_name=request.first_name,
+            last_name=request.last_name,
+            date_of_birth=dob,
+            biological_sex=request.biological_sex,
+        )
+        
+        logger.info(
+            "END USER LOGIN: Created session %s for user %s (%s)",
+            session.session_id, session.user_id, session.profile.full_name
+        )
+        
+        return {
+            "success": True,
+            "session": session.to_dict(),
+            "disclaimer": "Demo only. Synthetic identity data. No real authentication performed.",
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("End user login failed: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/end-user/session/{session_id}")
+async def get_end_user_session(session_id: str):
+    """Get the current state of an end-user session."""
+    from app.end_user import user_session_store
+    
+    session = user_session_store.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    return {
+        "success": True,
+        "session": session.to_dict(),
+    }
+
+
+@app.post("/api/end-user/connect-apple-health")
+async def connect_apple_health(request: AppleHealthConsentRequest):
+    """
+    Simulate Apple Health connection with consent.
+    
+    DEMO ONLY - No real Apple APIs, OAuth, or HealthKit SDKs.
+    On consent, assigns predefined mock Apple Health data based on user profile.
+    
+    This creates an application object using the SAME structure as admin uploads.
+    """
+    from datetime import datetime, timezone
+    from app.end_user import user_session_store, generate_apple_health_data
+    
+    try:
+        # Get session
+        session = user_session_store.get_session(request.session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+        
+        if not request.consent_granted:
+            return {
+                "success": False,
+                "message": "Apple Health consent denied. Cannot proceed without health data access.",
+            }
+        
+        # Generate mock Apple Health data based on user profile
+        logger.info(
+            "END USER APPLE HEALTH: Generating mock data for user %s",
+            session.user_id
+        )
+        
+        apple_health_data = generate_apple_health_data(
+            user_id=session.user_id,
+            date_of_birth=session.profile.date_of_birth,
+        )
+        
+        # Update session with Apple Health data
+        session.apple_health_connected = True
+        session.apple_health_consent_timestamp = datetime.now(timezone.utc)
+        session.apple_health_data = apple_health_data.to_health_metrics_dict()
+        user_session_store.update_session(session)
+        
+        logger.info(
+            "END USER APPLE HEALTH: Mock data generated for user %s - BMI=%.1f, Steps=%d, HR=%d",
+            session.user_id,
+            apple_health_data.bmi,
+            apple_health_data.daily_steps_avg,
+            apple_health_data.resting_hr_avg,
+        )
+        
+        # Now create an application using the mock health data
+        # This uses the SAME backend service as admin "Upload Application"
+        app_id = await _create_application_from_apple_health(
+            session=session,
+            apple_health_data=apple_health_data,
+            policy_type=request.policy_type,
+            coverage_amount=request.coverage_amount,
+        )
+        
+        # Update session with application ID
+        session.application_id = app_id
+        session.application_created_at = datetime.now(timezone.utc)
+        user_session_store.update_session(session)
+        
+        return {
+            "success": True,
+            "message": "Apple Health connected and application created successfully",
+            "session": session.to_dict(),
+            "application_id": app_id,
+            "health_summary": {
+                "bmi": apple_health_data.bmi,
+                "daily_steps_avg": apple_health_data.daily_steps_avg,
+                "resting_hr_avg": apple_health_data.resting_hr_avg,
+                "sleep_hours_avg": apple_health_data.avg_sleep_duration_hours,
+                "health_flags": {
+                    "elevated_hr_concern": apple_health_data.has_elevated_hr_concern,
+                    "irregular_rhythm_concern": apple_health_data.has_irregular_rhythm_concern,
+                    "sleep_concern": apple_health_data.has_sleep_concern,
+                    "activity_concern": apple_health_data.has_activity_concern,
+                    "bmi_concern": apple_health_data.has_bmi_concern,
+                },
+            },
+            "disclaimer": "Synthetic Apple Health data for demo purposes only.",
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Apple Health connection failed: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+async def _create_application_from_apple_health(
+    session,
+    apple_health_data,
+    policy_type: str,
+    coverage_amount: float,
+) -> str:
+    """
+    Create an application record from Apple Health mock data.
+    
+    Uses the SAME structure and backend as admin uploads.
+    The application is marked with:
+    - source = "end_user"
+    - ingestion_type = "apple_health_mock"
+    """
+    from datetime import datetime, timezone
+    
+    settings = load_settings()
+    app_id = f"eu_{uuid.uuid4().hex[:6]}"  # Prefix to distinguish end-user apps
+    
+    # Create application metadata using the SAME structure as admin uploads
+    app_md = ApplicationMetadata(
+        id=app_id,
+        created_at=datetime.now(timezone.utc).isoformat(),
+        external_reference=f"end_user_{session.user_id}",
+        status="ready_for_analysis",
+        files=[],  # No files for end-user flow
+        persona="underwriting",  # SAME persona as underwriting
+    )
+    
+    # Build LLM outputs structure that matches what extraction produces
+    # This allows the SAME agent pipeline to process it
+    patient_profile = apple_health_data.to_patient_profile_dict(
+        first_name=session.profile.first_name,
+        last_name=session.profile.last_name,
+        date_of_birth=session.profile.date_of_birth,
+        biological_sex=session.profile.biological_sex,
+        policy_type=policy_type,
+        coverage_amount=coverage_amount,
+    )
+    
+    health_metrics = apple_health_data.to_health_metrics_dict()
+    
+    # Structure LLM outputs to match what agents expect
+    app_md.llm_outputs = {
+        "patient_summary": {
+            "patient_id": session.user_id,
+            "name": session.profile.full_name,
+            "age": session.profile.age,
+            "gender": session.profile.biological_sex,
+            "policy_type": policy_type,
+            "coverage_amount": coverage_amount,
+        },
+        "patient_profile": patient_profile,
+        "health_metrics": health_metrics,
+        "medical_timeline": [],  # No timeline for mock data
+        "diagnoses_conditions": [],
+        "medications": [],
+        "lab_results": [],
+        "source": "end_user",
+        "ingestion_type": "apple_health_mock",
+        "end_user_id": session.user_id,
+        "session_id": session.session_id,
+    }
+    
+    # Store extracted fields for agent processing
+    app_md.extracted_fields = {
+        "applicant_name": session.profile.full_name,
+        "applicant_age": session.profile.age,
+        "applicant_dob": session.profile.date_of_birth.isoformat(),
+        "biological_sex": session.profile.biological_sex,
+        "bmi": apple_health_data.bmi,
+        "policy_type": policy_type,
+        "coverage_amount": coverage_amount,
+        "data_source": "apple_health_mock",
+    }
+    
+    # Set confidence summary (mock data has 100% confidence since it's generated)
+    app_md.confidence_summary = {
+        "overall_confidence": 1.0,
+        "fields_extracted": len(app_md.extracted_fields),
+        "source": "apple_health_mock",
+    }
+    
+    # Save application using the SAME storage as admin uploads
+    save_application_metadata(settings.app.storage_root, app_md)
+    
+    logger.info(
+        "END USER APPLICATION: Created application %s for user %s (source=end_user, type=%s, amount=%.0f)",
+        app_id, session.user_id, policy_type, coverage_amount
+    )
+    
+    return app_id
+
+
+@app.post("/api/end-user/run-risk-analysis/{session_id}")
+async def run_end_user_risk_analysis(session_id: str, use_demo: bool = False):
+    """
+    Run risk analysis for an end-user application.
+    
+    IMPORTANT: Uses the SAME agent pipeline as underwriters.
+    No sample responses. No mock agent flows. No demo-only shortcuts.
+    
+    This endpoint calls the SAME backend endpoint used by underwriters:
+    - AGENT_EXECUTION_ENABLED=true
+    - SAME OrchestratorAgent
+    - SAME application_id
+    """
+    from app.end_user import user_session_store
+    
+    # Get session
+    session = user_session_store.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    if not session.application_id:
+        raise HTTPException(
+            status_code=400, 
+            detail="No application found. Connect Apple Health first."
+        )
+    
+    logger.info("=" * 60)
+    logger.info("END USER AGENT EXECUTION STARTED")
+    logger.info("Session: %s, User: %s, Application: %s",
+                session_id, session.user_id, session.application_id)
+    logger.info("=" * 60)
+    
+    try:
+        # Call the SAME risk analysis endpoint used by underwriters
+        # This ensures identical agent execution
+        result = await run_application_risk_analysis(
+            app_id=session.application_id,
+            use_demo=use_demo,
+        )
+        
+        # Update session with results
+        session.risk_analysis_completed = True
+        session.risk_analysis_workflow_id = result.get("workflow_id")
+        user_session_store.update_session(session)
+        
+        logger.info("=" * 60)
+        logger.info("END USER AGENT EXECUTION COMPLETED")
+        logger.info("Workflow: %s, Mode: %s",
+                    result.get("workflow_id"), result.get("execution_mode"))
+        logger.info("=" * 60)
+        
+        return {
+            "success": True,
+            "session": session.to_dict(),
+            "risk_analysis": result.get("risk_analysis"),
+            "workflow_id": result.get("workflow_id"),
+            "execution_mode": result.get("execution_mode"),
+            "disclaimer": "Estimated premium impact (demo). Based on synthetic health data.",
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("End user risk analysis failed: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/end-user/run-risk-analysis-stream/{session_id}")
+async def run_end_user_risk_analysis_stream(session_id: str, use_demo: bool = False):
+    """
+    Run risk analysis with real-time progress streaming (SSE) for end-user.
+    
+    IMPORTANT: Uses the SAME streaming endpoint as underwriters.
+    """
+    from app.end_user import user_session_store
+    
+    # Get session
+    session = user_session_store.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    if not session.application_id:
+        raise HTTPException(
+            status_code=400, 
+            detail="No application found. Connect Apple Health first."
+        )
+    
+    logger.info("=" * 60)
+    logger.info("END USER AGENT EXECUTION STARTED (STREAMING)")
+    logger.info("Session: %s, User: %s, Application: %s",
+                session_id, session.user_id, session.application_id)
+    logger.info("=" * 60)
+    
+    # Redirect to the SAME streaming endpoint
+    return await run_application_risk_analysis_stream(
+        app_id=session.application_id,
+        use_demo=use_demo,
+    )
+
+
+@app.get("/api/end-user/application/{session_id}")
+async def get_end_user_application(session_id: str):
+    """
+    Get the application data for an end-user session.
+    
+    Returns the SAME application format as admin view.
+    """
+    from app.end_user import user_session_store
+    
+    session = user_session_store.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    if not session.application_id:
+        raise HTTPException(
+            status_code=400,
+            detail="No application found. Connect Apple Health first."
+        )
+    
+    settings = load_settings()
+    app_md = load_application(settings.app.storage_root, session.application_id)
+    
+    if not app_md:
+        raise HTTPException(status_code=404, detail="Application not found")
+    
+    # Return the SAME format as admin view
+    return {
+        "success": True,
+        "application": application_to_dict(app_md),
+        "session": session.to_dict(),
+    }
+
+
+@app.delete("/api/end-user/session/{session_id}")
+async def end_user_logout(session_id: str):
+    """End an end-user session (logout)."""
+    from app.end_user import user_session_store
+    
+    deleted = user_session_store.delete_session(session_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    logger.info("END USER LOGOUT: Session %s ended", session_id)
+    
+    return {
+        "success": True,
+        "message": "Session ended successfully",
+    }
+
+
 # Entry point for running with uvicorn directly
 def main():
     """Entry point for the API server."""
