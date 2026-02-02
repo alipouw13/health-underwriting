@@ -162,7 +162,7 @@ from app.agents.communication import (
 
 # Import output types for type hints (used in context retrieval)
 from app.agents.data_quality_confidence import DataQualityConfidenceOutput
-from app.agents.policy_risk import PolicyRiskOutput
+from app.agents.policy_risk import PolicyRiskAgent, PolicyRiskOutput
 from app.agents.bias_fairness import BiasAndFairnessOutput
 from app.agents.audit_trace import AuditAndTraceOutput, AgentOutputRecord
 
@@ -441,7 +441,8 @@ class OrchestratorAgent:
     # Human-readable agent names for progress display
     AGENT_DISPLAY_NAMES = {
         "HealthDataAnalysisAgent": "Health Data Analysis",
-        "BusinessRulesValidationAgent": "Business Rules & Premium",
+        "PolicyRiskAgent": "Policy Risk Assessment",
+        "BusinessRulesValidationAgent": "Business Rules Validation",
         "CommunicationAgent": "Decision Communication",
     }
     
@@ -474,8 +475,9 @@ class OrchestratorAgent:
             self.logger.info("OrchestratorAgent initialized with local deterministic agents%s", 
                            " (demo mode)" if use_demo else "")
         
-        # Initialize local agents (simplified 3-agent workflow)
+        # Initialize local agents (4-agent workflow)
         self._health_data_agent = HealthDataAnalysisAgent()
+        self._policy_risk_agent = PolicyRiskAgent()
         self._business_rules_agent = BusinessRulesValidationAgent()
         self._communication_agent = CommunicationAgent()
     
@@ -647,7 +649,7 @@ class OrchestratorAgent:
         
         policy_rules = validated_input.policy_rules or get_standard_policy_rules()
         
-        # Define agents in execution order (simplified 3-agent workflow)
+        # Define agents in execution order (4-agent workflow with PolicyRiskAgent)
         # Each tuple: (agent_id, step_number, description, tools_used, execute_fn)
         agents = [
             (
@@ -658,15 +660,22 @@ class OrchestratorAgent:
                 lambda: self._execute_health_data_analysis(context, health_metrics, patient_profile)
             ),
             (
+                "PolicyRiskAgent",
+                2,
+                "Translating health indicators into risk categories",
+                ["policy-rule-engine", "risk-classifier"],
+                lambda: self._execute_policy_risk(context, policy_rules)
+            ),
+            (
                 "BusinessRulesValidationAgent", 
-                2, 
-                "Applying underwriting rules and calculating premium",
+                3, 
+                "Validating against underwriting rules and calculating premium",
                 ["rule-engine", "premium-calculator"],
                 lambda: self._execute_business_rules_validation(context, patient_profile)
             ),
             (
                 "CommunicationAgent", 
-                3, 
+                4, 
                 "Generating decision communications",
                 ["message-generator", "tone-analyzer"],
                 lambda: self._execute_communication(context, patient_profile)
@@ -1095,12 +1104,19 @@ Return JSON:
         context: ExecutionContext,
         policy_rules: PolicyRuleSet,
     ) -> PolicyRiskOutput:
-        """Step 3: Execute PolicyRiskAgent."""
-        self.logger.info("Step 3: Executing PolicyRiskAgent%s",
+        """Step 2: Execute PolicyRiskAgent.
+        
+        Translates health risk indicators into insurance risk categories
+        by evaluating against the underwriting policy manual.
+        """
+        self.logger.info("Step 2: Executing PolicyRiskAgent%s",
                         " (via Azure AI Foundry)" if self._use_foundry else " (local)")
         
         # Get risk indicators from Step 1
         hda_output: HealthDataAnalysisOutput = context.get_output("HealthDataAnalysisAgent")
+        
+        # Load the actual underwriting policies from JSON
+        underwriting_policies = self._load_underwriting_policies()
         
         input_data = {
             "risk_indicators": [ri.model_dump() for ri in hda_output.risk_indicators],
@@ -1108,29 +1124,88 @@ Return JSON:
         }
         
         if self._use_foundry:
-            prompt = """Translate health risk indicators into insurance risk categories and premium adjustments.
+            # PolicyRiskAgent is not deployed to Foundry (only 3 agents are deployed)
+            # Use Azure OpenAI directly with the policy rules
+            from app.openai_client import chat_completion
+            from app.config import load_settings
+            import json as json_module
+            
+            # Format risk indicators for prompt
+            risk_indicators_text = "\n".join([
+                f"- {ri.indicator_name}: {ri.risk_level.value} risk (confidence: {ri.confidence:.0%}) - {ri.explanation}"
+                for ri in hda_output.risk_indicators
+            ])
+            
+            # Format policies for prompt (summary of key policies)
+            policies_summary = self._format_policies_for_prompt(underwriting_policies)
+            
+            prompt = f"""You are an expert insurance underwriter. Translate health risk indicators into insurance risk categories using the underwriting policy manual.
 
-Based on the risk indicators and policy rules, determine:
-- Overall risk level
-- Premium adjustment percentage
-- Which policy rules were triggered
+## RISK INDICATORS FROM HEALTH ANALYSIS
 
-Return JSON:
-{
+{risk_indicators_text}
+
+## UNDERWRITING POLICY MANUAL (Key Policies)
+
+{policies_summary}
+
+## INSTRUCTIONS
+
+1. Evaluate EACH risk indicator against the relevant policy criteria
+2. For each indicator, identify which policy ID and criteria applies
+3. Calculate cumulative risk level based on all factors
+4. Determine preliminary premium adjustment percentage
+
+## RISK LEVEL GUIDELINES
+- Low (0% adjustment): No significant risk factors
+- Low-Moderate (+10-15% adjustment): Minor risk factors, well-controlled
+- Moderate (+15-25% adjustment): Multiple risk factors or poorly controlled conditions  
+- Moderate-High (+25-50% adjustment): Significant risk factors requiring premium loading
+- High (+50-100% adjustment or decline): Severe uncontrolled conditions
+
+Return STRICT JSON:
+{{
   "risk_level": "low" | "moderate" | "high" | "very_high",
-  "premium_adjustment_percentage": number,
-  "triggered_rules": ["rule_id1", "rule_id2"],
-  "rationale": "Explanation of the assessment"
-}"""
-            result = await self._invoke_foundry_agent("PolicyRiskAgent", prompt, input_data)
-            parsed = result.get("parsed") or {}
+  "risk_delta_score": <integer 0-100>,
+  "premium_adjustment_percentage": <number>,
+  "triggered_rules": ["policy_id-criteria_id", ...],
+  "rule_evaluations": [
+    {{"indicator": "...", "policy_id": "...", "criteria_id": "...", "action": "...", "contribution": "+X%"}}
+  ],
+  "rationale": "2-3 sentence explanation of how risk level was determined"
+}}"""
+            
+            # Use OpenAI directly since PolicyRiskAgent is not deployed to Foundry
+            settings = load_settings()
+            start_time = datetime.now(timezone.utc)
+            
+            messages = [
+                {"role": "system", "content": "You are an expert insurance underwriter. Return responses as valid JSON only."},
+                {"role": "user", "content": prompt}
+            ]
+            
+            response = chat_completion(
+                settings=settings.openai,
+                messages=messages,
+                temperature=0.3,
+                max_tokens=2000,
+            )
+            
+            execution_time_ms = (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
+            response_text = response.get("content", "{}")
+            
+            try:
+                parsed = json_module.loads(response_text)
+            except json_module.JSONDecodeError:
+                self.logger.warning("Failed to parse PolicyRiskAgent response as JSON")
+                parsed = {}
             
             from data.mock.schemas import PremiumAdjustment
             risk_level = RiskLevel(parsed.get("risk_level", "moderate").lower())
             
             # Calculate premium values
             base_premium = 1200.00  # Default base premium
-            adjustment_pct = float(parsed.get("premium_adjustment_percentage", 50))
+            adjustment_pct = float(parsed.get("premium_adjustment_percentage", 25))
             adjusted_premium = base_premium * (1 + adjustment_pct / 100)
             
             output = PolicyRiskOutput(
@@ -1140,18 +1215,83 @@ Return JSON:
                     base_premium_annual=base_premium,
                     adjustment_percentage=adjustment_pct,
                     adjusted_premium_annual=adjusted_premium,
-                    adjustment_factors={"ai_analysis": adjustment_pct},
+                    adjustment_factors={"ai_policy_analysis": adjustment_pct},
                     triggered_rule_ids=parsed.get("triggered_rules", []),
                 ),
                 triggered_rules=parsed.get("triggered_rules", []),
-                rule_evaluation_log=[f"AI analyzed {len(hda_output.risk_indicators)} risk indicators"],
-                execution_time_ms=result.get("execution_time_ms", 0),
+                # Convert rule_evaluations dicts to strings for the log
+                rule_evaluation_log=[
+                    f"{eval_item.get('indicator', 'Unknown')}: {eval_item.get('policy_id', 'N/A')} - {eval_item.get('action', 'N/A')} ({eval_item.get('contribution', 'N/A')})"
+                    if isinstance(eval_item, dict) else str(eval_item)
+                    for eval_item in parsed.get("rule_evaluations", [])
+                ] or [f"AI analyzed {len(hda_output.risk_indicators)} risk indicators against policy manual"],
+                execution_time_ms=execution_time_ms,
             )
         else:
             output = await self._policy_risk_agent.run(input_data)
         
-        context.store_output("PolicyRiskAgent", output, step_number=3)
+        # Capture actual inputs for transparency
+        actual_inputs = {
+            "risk_indicators_count": len(hda_output.risk_indicators),
+            "risk_indicators_summary": [{"name": ri.indicator_name, "risk_level": ri.risk_level.value} for ri in hda_output.risk_indicators[:5]],
+            "policies_loaded": len(underwriting_policies.get("policies", [])) if underwriting_policies else 0,
+        }
+        tools_used = ["azure-ai-foundry", "policy-rule-engine"] if self._use_foundry else ["local-policy-analyzer"]
+        context.store_output(
+            "PolicyRiskAgent", 
+            output, 
+            step_number=2,
+            actual_inputs=actual_inputs,
+            tools_invoked=tools_used
+        )
         return output
+    
+    def _load_underwriting_policies(self) -> dict:
+        """Load the underwriting policies from JSON file."""
+        import json
+        from pathlib import Path
+        
+        # Try multiple locations
+        possible_paths = [
+            Path(__file__).parent.parent.parent / "prompts" / "life-health-underwriting-policies.json",
+            Path(__file__).parent.parent.parent / "data" / "life-health-underwriting-policies.json",
+        ]
+        
+        for path in possible_paths:
+            if path.exists():
+                try:
+                    with open(path, "r") as f:
+                        policies = json.load(f)
+                        self.logger.info(f"Loaded {len(policies.get('policies', []))} underwriting policies from {path}")
+                        return policies
+                except Exception as e:
+                    self.logger.warning(f"Failed to load policies from {path}: {e}")
+        
+        self.logger.warning("No underwriting policies file found")
+        return {"policies": []}
+    
+    def _format_policies_for_prompt(self, policies_data: dict, max_policies: int = 10) -> str:
+        """Format policies for inclusion in the prompt."""
+        if not policies_data or "policies" not in policies_data:
+            return "No policies loaded."
+        
+        policies = policies_data.get("policies", [])[:max_policies]
+        formatted = []
+        
+        for policy in policies:
+            policy_text = f"""
+### {policy.get('id', 'Unknown')} - {policy.get('name', 'Unknown Policy')}
+Category: {policy.get('category', 'N/A')} / {policy.get('subcategory', 'N/A')}
+
+Criteria:"""
+            for criteria in policy.get("criteria", [])[:4]:  # Limit criteria per policy
+                policy_text += f"""
+- {criteria.get('id', 'N/A')}: {criteria.get('condition', 'N/A')}
+  Risk Level: {criteria.get('risk_level', 'N/A')}
+  Action: {criteria.get('action', 'N/A')}"""
+            formatted.append(policy_text)
+        
+        return "\n".join(formatted)
     
     async def _execute_business_rules_validation(
         self,
@@ -1165,11 +1305,12 @@ Return JSON:
         - Premium adjustment calculation
         - Business rules compliance validation
         """
-        self.logger.info("Step 2: Executing BusinessRulesValidationAgent%s",
+        self.logger.info("Step 3: Executing BusinessRulesValidationAgent%s",
                         " (via Azure AI Foundry)" if self._use_foundry else " (local)")
         
-        # Get risk indicators from Step 1
+        # Get outputs from previous steps
         hda_output: HealthDataAnalysisOutput = context.get_output("HealthDataAnalysisAgent")
+        pr_output: PolicyRiskOutput = context.get_output("PolicyRiskAgent")
         
         # Format risk indicators for prompt
         risk_indicators_text = "\n".join([
@@ -1177,13 +1318,23 @@ Return JSON:
             for ri in hda_output.risk_indicators
         ])
         
+        # Get preliminary risk assessment from PolicyRiskAgent
+        preliminary_risk_level = pr_output.risk_level.value if pr_output else "moderate"
+        preliminary_adjustment = pr_output.premium_adjustment_recommendation.adjustment_percentage if pr_output else 0
+        triggered_policy_rules = pr_output.triggered_rules if pr_output else []
+        
         # Calculate base premium (simplified calculation)
         base_premium = patient_profile.coverage_amount_requested * 0.002  # 0.2% base rate
         
         if self._use_foundry:
             # Build comprehensive prompt for Foundry agent
-            prompt = f"""You are an Underwriting Rules Specialist. Analyze the health risk indicators and apply 
-business rules to determine the premium adjustment and approval status.
+            prompt = f"""You are an Underwriting Rules Specialist. Validate the preliminary risk assessment from PolicyRiskAgent
+against business rules and determine the final premium adjustment and approval status.
+
+## Preliminary Risk Assessment (from PolicyRiskAgent):
+- Risk Level: {preliminary_risk_level}
+- Recommended Adjustment: +{preliminary_adjustment}%
+- Policy Rules Triggered: {', '.join(triggered_policy_rules) if triggered_policy_rules else 'None'}
 
 ## Risk Indicators from Health Analysis:
 {risk_indicators_text}
@@ -1202,7 +1353,7 @@ business rules to determine the premium adjustment and approval status.
 - Coverage Amount: ${patient_profile.coverage_amount_requested:,.2f}
 - Base Premium: ${base_premium:.2f}
 
-## Business Rules to Apply:
+## Business Rules to Validate:
 
 ### Risk Classification:
 - LOW RISK (0% adjustment): No significant risk indicators, non-smoker, BMI 18.5-25
@@ -1328,6 +1479,8 @@ Return your analysis as JSON:
         # Capture actual inputs for transparency
         actual_inputs = {
             "risk_indicators_count": len(hda_output.risk_indicators),
+            "preliminary_risk_level": preliminary_risk_level,
+            "preliminary_adjustment": preliminary_adjustment,
             "patient_age": patient_profile.demographics.age,
             "smoker_status": patient_profile.medical_history.smoker_status,
             "base_premium": base_premium,
@@ -1336,7 +1489,7 @@ Return your analysis as JSON:
         context.store_output(
             "BusinessRulesValidationAgent", 
             output, 
-            step_number=2,
+            step_number=3,
             actual_inputs=actual_inputs,
             tools_invoked=tools_used
         )
@@ -1611,7 +1764,7 @@ Return JSON:
         context.store_output(
             "CommunicationAgent", 
             output, 
-            step_number=3,
+            step_number=4,
             actual_inputs=actual_inputs,
             tools_invoked=tools_used
         )

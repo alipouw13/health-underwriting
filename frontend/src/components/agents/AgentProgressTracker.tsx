@@ -30,7 +30,7 @@ export interface AgentProgressEvent {
   timestamp?: string;
 }
 
-// Agent definitions for the 3-agent MVP workflow
+// Agent definitions for the 4-agent workflow (with PolicyRiskAgent)
 const AGENT_DEFINITIONS = [
   { 
     id: 'HealthDataAnalysisAgent', 
@@ -38,10 +38,16 @@ const AGENT_DEFINITIONS = [
     description: 'Extracting risk indicators from medical data',
     icon: '🏥'
   },
+  {
+    id: 'PolicyRiskAgent',
+    name: 'Policy Risk Assessment',
+    description: 'Translating health signals into risk categories',
+    icon: '📊'
+  },
   { 
     id: 'BusinessRulesValidationAgent', 
-    name: 'Business Rules & Premium', 
-    description: 'Validating against underwriting policies',
+    name: 'Business Rules Validation', 
+    description: 'Validating against underwriting rules',
     icon: '📋'
   },
   { 

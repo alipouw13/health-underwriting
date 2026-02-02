@@ -119,7 +119,7 @@ async def startup_event():
                 total_count = len(status)
                 
                 if deployed_count == total_count:
-                    logger.info(f"All {deployed_count} agents deployed in Azure AI Foundry")
+                    logger.info(f"All {deployed_count} Foundry agents deployed. PolicyRiskAgent runs via Azure OpenAI directly.")
                 else:
                     logger.warning(
                         f"Agent deployment: {deployed_count}/{total_count} agents deployed. "
