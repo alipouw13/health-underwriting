@@ -181,47 +181,119 @@ export function extractPatientInfo(app: ApplicationMetadata): PatientInfo {
   const fields = app.extracted_fields || {};
   
   const getValue = (key: string): string => {
-    const field = Object.values(fields).find(
-      (f) => f.field_name === key || f.field_name.includes(key)
-    );
-    return field?.value?.toString() || 'N/A';
+    // Handle both object format {field_name, value} and simple key-value format
+    const fieldValues = Object.entries(fields);
+    for (const [fieldKey, fieldVal] of fieldValues) {
+      if (fieldKey === key || fieldKey.toLowerCase().includes(key.toLowerCase())) {
+        return fieldVal?.toString() || 'N/A';
+      }
+      // Also check if it's an object with field_name property
+      if (typeof fieldVal === 'object' && fieldVal !== null) {
+        const obj = fieldVal as any;
+        if (obj.field_name === key || obj.field_name?.includes?.(key)) {
+          return obj.value?.toString() || 'N/A';
+        }
+      }
+    }
+    return 'N/A';
   };
 
   const getNumericValue = (key: string): number | string => {
-    const field = Object.values(fields).find(
-      (f) => f.field_name === key || f.field_name.includes(key)
-    );
-    const val = field?.value;
-    return typeof val === 'number' ? val : val?.toString() || 'N/A';
+    const strVal = getValue(key);
+    if (strVal === 'N/A') return 'N/A';
+    const num = parseFloat(strVal);
+    return isNaN(num) ? strVal : num;
   };
 
   // Try to extract from extracted_fields first, then fall back to llm_outputs
   let name = getValue('ApplicantName');
   let dateOfBirth = getValue('DateOfBirth');
+  let gender = getValue('Gender');
+  let occupation = getValue('Occupation');
+  let height = getValue('Height');
+  let weight = getValue('Weight');
+  let bmiVal = getNumericValue('BMI');
+  let ageVal = getNumericValue('Age');
   
   // Parse from LLM outputs if not found
   const customerProfile = app.llm_outputs?.application_summary?.customer_profile?.parsed;
+  const patientProfile = app.llm_outputs?.patient_profile;
+  const patientSummary = app.llm_outputs?.patient_summary;
+  
+  // Try customer_profile key_fields first
   if (customerProfile) {
     const keyFields = customerProfile.key_fields || [];
     for (const kf of keyFields) {
-      if (kf.label.toLowerCase().includes('name') && name === 'N/A') {
+      const label = kf.label?.toLowerCase() || '';
+      if (label.includes('name') && name === 'N/A') {
         name = kf.value;
       }
-      if (kf.label.toLowerCase().includes('birth') && dateOfBirth === 'N/A') {
+      if (label.includes('birth') && dateOfBirth === 'N/A') {
         dateOfBirth = kf.value;
       }
+    }
+    // Also check direct properties
+    if (name === 'N/A' && customerProfile.full_name) {
+      name = customerProfile.full_name;
+    }
+    if (gender === 'N/A' && customerProfile.gender) {
+      gender = customerProfile.gender;
+    }
+    if (occupation === 'N/A' && customerProfile.occupation) {
+      occupation = customerProfile.occupation;
+    }
+  }
+  
+  // Try patient_profile for measurements
+  if (patientProfile) {
+    if (name === 'N/A' && patientProfile.name) {
+      name = patientProfile.name;
+    }
+    if (height === 'N/A' && patientProfile.height_cm) {
+      const h = parseFloat(patientProfile.height_cm);
+      height = isNaN(h) ? patientProfile.height_cm : `${h.toFixed(2)} cm`;
+    }
+    if (weight === 'N/A' && patientProfile.weight_kg) {
+      const w = parseFloat(patientProfile.weight_kg);
+      weight = isNaN(w) ? patientProfile.weight_kg : `${w.toFixed(2)} kg`;
+    }
+    if (bmiVal === 'N/A' && patientProfile.bmi) {
+      const b = parseFloat(patientProfile.bmi);
+      bmiVal = isNaN(b) ? patientProfile.bmi : parseFloat(b.toFixed(2));
+    }
+    if (ageVal === 'N/A' && patientProfile.age) {
+      ageVal = patientProfile.age;
+    }
+    if (dateOfBirth === 'N/A' && patientProfile.date_of_birth) {
+      dateOfBirth = patientProfile.date_of_birth;
+    }
+    if (gender === 'N/A' && patientProfile.gender) {
+      gender = patientProfile.gender;
+    }
+  }
+  
+  // Try patient_summary as final fallback
+  if (patientSummary) {
+    if (name === 'N/A' && patientSummary.name) {
+      name = patientSummary.name;
+    }
+    if (ageVal === 'N/A' && patientSummary.age) {
+      ageVal = patientSummary.age;
+    }
+    if (gender === 'N/A' && patientSummary.gender) {
+      gender = patientSummary.gender;
     }
   }
 
   return {
     name,
-    gender: getValue('Gender'),
+    gender,
     dateOfBirth,
-    age: getNumericValue('Age'),
-    occupation: getValue('Occupation'),
-    height: getValue('Height'),
-    weight: getValue('Weight'),
-    bmi: getNumericValue('BMI'),
+    age: ageVal,
+    occupation,
+    height,
+    weight,
+    bmi: bmiVal,
   };
 }
 
@@ -484,29 +556,39 @@ export function getCitation(
 ): ExtractedField | undefined {
   const fields = app.extracted_fields || {};
   
+  // Handle simple key-value format (no field_name property)
+  // This is the format used by end-user applications
+  const fieldValues = Object.entries(fields);
+  for (const [key, val] of fieldValues) {
+    if (typeof val !== 'object' || val === null || !('field_name' in val)) {
+      // Simple key-value format - no citations available
+      return undefined;
+    }
+  }
+  
   // Direct lookup by field_name property
   const direct = Object.values(fields).find(
-    (f) => f.field_name === fieldName
+    (f) => f?.field_name === fieldName
   );
   if (direct && direct.source_file) return direct;
   
   // Try snake_case version (e.g., ApplicantName -> applicant_name)
   const snakeCase = toSnakeCase(fieldName);
   const snakeMatch = Object.values(fields).find(
-    (f) => f.field_name === snakeCase
+    (f) => f?.field_name === snakeCase
   );
   if (snakeMatch && snakeMatch.source_file) return snakeMatch;
   
   // Try case-insensitive match
   const lowerFieldName = fieldName.toLowerCase();
   const caseInsensitive = Object.values(fields).find(
-    (f) => f.field_name.toLowerCase() === lowerFieldName
+    (f) => f?.field_name?.toLowerCase?.() === lowerFieldName
   );
   if (caseInsensitive && caseInsensitive.source_file) return caseInsensitive;
   
   // Try partial match (for fields prefixed with filename)
   for (const field of Object.values(fields)) {
-    if ((field.field_name.endsWith(fieldName) || field.field_name.includes(fieldName)) && field.source_file) {
+    if (field?.field_name && (field.field_name.endsWith(fieldName) || field.field_name.includes(fieldName)) && field.source_file) {
       return field;
     }
   }

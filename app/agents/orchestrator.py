@@ -1269,9 +1269,14 @@ Return your final assessment as JSON:
             from data.mock.schemas import PremiumAdjustment
             risk_level = RiskLevel(parsed.get("risk_level", "moderate").lower())
             
-            # Calculate premium values
+            # Calculate premium values with safe parsing
             base_premium = 1200.00  # Default base premium
-            adjustment_pct = float(parsed.get("premium_adjustment_percentage", 25))
+            adjustment_val = parsed.get("premium_adjustment_percentage", 25)
+            # Handle None or invalid values
+            try:
+                adjustment_pct = float(adjustment_val) if adjustment_val is not None else 25.0
+            except (TypeError, ValueError):
+                adjustment_pct = 25.0
             adjusted_premium = base_premium * (1 + adjustment_pct / 100)
             
             output = PolicyRiskOutput(

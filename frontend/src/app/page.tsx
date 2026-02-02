@@ -1,8 +1,9 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { Sparkles, FileText, User } from 'lucide-react';
+import { Sparkles, FileText, User, Shield, LogOut, Check } from 'lucide-react';
 import TopNav from '@/components/TopNav';
 import PatientHeader from '@/components/PatientHeader';
 import PatientSummary from '@/components/PatientSummary';
@@ -27,7 +28,22 @@ import type { ApplicationMetadata, ApplicationListItem } from '@/lib/types';
 
 type ViewType = 'overview' | 'timeline' | 'documents' | 'source';
 
+// Applicant session from sessionStorage
+interface ApplicantSession {
+  session_id: string;
+  user_id: string;
+  profile: {
+    first_name: string;
+    last_name: string;
+    full_name: string;
+    age: number;
+  };
+  application_id: string;
+  apple_health_connected: boolean;
+}
+
 export default function Home() {
+  const searchParams = useSearchParams();
   const [applications, setApplications] = useState<ApplicationListItem[]>([]);
   const [selectedApp, setSelectedApp] = useState<ApplicationMetadata | null>(null);
   const [loading, setLoading] = useState(true);
@@ -36,10 +52,40 @@ export default function Home() {
   const [isPolicyReportOpen, setIsPolicyReportOpen] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
   const { currentPersona, personaConfig } = usePersona();
+  
+  // Applicant mode state
+  const [isApplicantMode, setIsApplicantMode] = useState(false);
+  const [applicantSession, setApplicantSession] = useState<ApplicantSession | null>(null);
+
+  // Check for applicant mode on mount
+  useEffect(() => {
+    const applicantParam = searchParams.get('applicant');
+    const appParam = searchParams.get('app');
+    
+    if (applicantParam === 'true' && appParam) {
+      setIsApplicantMode(true);
+      // Try to load session from sessionStorage
+      const sessionData = sessionStorage.getItem('applicantSession');
+      if (sessionData) {
+        try {
+          setApplicantSession(JSON.parse(sessionData));
+        } catch (e) {
+          console.error('Failed to parse applicant session:', e);
+        }
+      }
+    }
+  }, [searchParams]);
 
   // Load applications list - reload when persona changes
   useEffect(() => {
     async function fetchApplications() {
+      // If in applicant mode with specific app, just load that app
+      const appParam = searchParams.get('app');
+      if (isApplicantMode && appParam) {
+        loadApplication(appParam);
+        return;
+      }
+      
       try {
         setLoading(true);
         setError(null);
@@ -77,7 +123,7 @@ export default function Home() {
     }
     
     fetchApplications();
-  }, [currentPersona]);
+  }, [currentPersona, isApplicantMode, searchParams]);
 
   async function loadApplications() {
     // This function is now just for manual refresh
@@ -343,17 +389,138 @@ export default function Home() {
     );
   };
 
+  // Handle applicant logout
+  const handleApplicantLogout = () => {
+    sessionStorage.removeItem('applicantSession');
+    localStorage.removeItem('endUserSessionId');
+    sessionStorage.removeItem('endUserFlowInProgress');
+    window.location.href = '/user';
+  };
+
+  // Render applicant header with progress indicator
+  const renderApplicantHeader = () => {
+    if (!isApplicantMode || !applicantSession) return null;
+    
+    const profile = applicantSession.profile;
+    const hasAnalysis = selectedApp?.risk_analysis?.parsed;
+    
+    return (
+      <div className="bg-white border-b border-gray-200">
+        {/* Top bar with logo and user info */}
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center">
+                <Shield className="w-6 h-6 text-white" />
+              </div>
+              <div>
+                <h1 className="text-xl font-semibold text-gray-900">InsureAI</h1>
+                <p className="text-sm text-gray-500">Instant Life Insurance Quotes</p>
+              </div>
+            </div>
+            
+            <div className="flex items-center gap-4">
+              <span className="text-sm text-gray-600">
+                Welcome, {profile.first_name}
+              </span>
+              <a
+                href="/"
+                className="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors"
+              >
+                Admin Portal
+              </a>
+              <button
+                onClick={handleApplicantLogout}
+                className="inline-flex items-center gap-2 px-3 py-1.5 text-sm text-gray-500 hover:text-gray-700"
+              >
+                <LogOut className="w-4 h-4" />
+                Sign out
+              </button>
+            </div>
+          </div>
+        </div>
+        
+        {/* Progress indicator */}
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 border-t border-gray-100">
+          <div className="flex items-center justify-center gap-4">
+            <div className="flex items-center gap-2 text-gray-400">
+              <div className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium bg-green-500 text-white">
+                <Check className="w-4 h-4" />
+              </div>
+              <span className="text-sm font-medium">Your Info</span>
+            </div>
+            
+            <div className="w-12 h-px bg-gray-300"></div>
+            
+            <div className="flex items-center gap-2 text-gray-400">
+              <div className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium bg-green-500 text-white">
+                <Check className="w-4 h-4" />
+              </div>
+              <span className="text-sm font-medium">Health Data</span>
+            </div>
+            
+            <div className="w-12 h-px bg-gray-300"></div>
+            
+            <div className={`flex items-center gap-2 ${hasAnalysis ? 'text-gray-400' : 'text-blue-600'}`}>
+              <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
+                hasAnalysis ? 'bg-green-500 text-white' : 'bg-blue-600 text-white'
+              }`}>
+                {hasAnalysis ? <Check className="w-4 h-4" /> : '3'}
+              </div>
+              <span className="text-sm font-medium">Your Quote</span>
+            </div>
+          </div>
+        </div>
+        
+        {/* Page title with user name and age */}
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 border-t border-gray-100 bg-slate-50">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <Shield className="w-6 h-6 text-indigo-500" />
+              <h2 className="text-lg font-semibold text-gray-900">Insurance Quote</h2>
+            </div>
+            <div className="flex items-center gap-2 text-right">
+              <span className="text-sm font-medium text-gray-900">{profile.full_name}</span>
+              <span className="text-sm text-gray-500">Age: {profile.age}</span>
+              <LogOut className="w-4 h-4 text-gray-400 cursor-pointer" onClick={handleApplicantLogout} />
+            </div>
+          </div>
+        </div>
+        
+        {/* Demo notice */}
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3">
+          <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+            <div className="flex items-start gap-2">
+              <span className="text-amber-600 mt-0.5">ℹ️</span>
+              <div className="text-sm">
+                <p className="font-medium text-amber-800">Demo Mode — Synthetic Data</p>
+                <p className="text-amber-700">
+                  This is a demonstration using synthetic Apple Health data. Real insurance quotes require actual medical underwriting.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
-      {/* Top Navigation */}
-      <TopNav
-        applications={applications}
-        selectedAppId={selectedApp?.id}
-        selectedApp={selectedApp || undefined}
-        activeView={activeView}
-        onSelectApp={loadApplication}
-        onChangeView={setActiveView}
-      />
+      {/* Show TopNav only when NOT in applicant mode */}
+      {!isApplicantMode && (
+        <TopNav
+          applications={applications}
+          selectedAppId={selectedApp?.id}
+          selectedApp={selectedApp || undefined}
+          activeView={activeView}
+          onSelectApp={loadApplication}
+          onChangeView={setActiveView}
+        />
+      )}
+      
+      {/* Show Applicant Header when in applicant mode */}
+      {isApplicantMode && renderApplicantHeader()}
 
       {/* Main Content */}
       <main className="flex flex-col" style={{ minHeight: 'calc(100vh - 120px)' }}>

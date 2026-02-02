@@ -138,26 +138,17 @@ export default function TopNav({
         <div className="flex items-center gap-4">
           <Link
             href="/user"
-            className="flex items-center gap-2 px-3 py-1.5 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 rounded-lg transition-colors border border-indigo-200"
-          >
-            <User className="w-4 h-4" />
-            <span className="text-sm font-medium">Applicant Portal</span>
-          </Link>
-          {flags.agent_execution_enabled && (
-            <Link
-              href="/agents"
-              className="flex items-center gap-2 px-3 py-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors"
-            >
-              <Bot className="w-4 h-4" />
-              <span className="text-sm">Agent Insights</span>
-            </Link>
-          )}
-          <Link
-            href="/admin"
             className="flex items-center gap-2 px-3 py-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors"
           >
+            <User className="w-4 h-4" />
+            <span className="text-sm">Applicant Portal</span>
+          </Link>
+          <Link
+            href="/"
+            className="flex items-center gap-2 px-3 py-1.5 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 rounded-lg transition-colors border border-indigo-200"
+          >
             <Settings className="w-4 h-4" />
-            <span className="text-sm">Admin</span>
+            <span className="text-sm font-medium">Admin Portal</span>
           </Link>
         </div>
       </div>

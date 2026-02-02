@@ -60,6 +60,17 @@ def analyze_health_metrics(
     logger.info("TOOL EXECUTION: analyze_health_metrics(age=%d, height=%s, weight=%s)", 
                 age, height_cm, weight_kg)
     
+    # Handle missing height/weight with defaults (average adult values)
+    if height_cm is None or height_cm <= 0:
+        height_cm = 170.0  # Default to average adult height
+        logger.warning("analyze_health_metrics: height_cm was None/invalid, using default 170cm")
+    if weight_kg is None or weight_kg <= 0:
+        weight_kg = 70.0  # Default to average adult weight
+        logger.warning("analyze_health_metrics: weight_kg was None/invalid, using default 70kg")
+    if age is None or age <= 0:
+        age = 35  # Default to average adult age
+        logger.warning("analyze_health_metrics: age was None/invalid, using default 35")
+    
     # Calculate BMI
     height_m = height_cm / 100
     bmi = weight_kg / (height_m ** 2)
@@ -208,8 +219,18 @@ def extract_risk_indicators(
     lifestyle_risk = "unknown"
     if lifestyle_factors:
         smoking = lifestyle_factors.get("smoking", False)
-        alcohol = lifestyle_factors.get("alcohol_weekly_units", 0)
-        exercise = lifestyle_factors.get("exercise_weekly_hours", 0)
+        alcohol = lifestyle_factors.get("alcohol_weekly_units") or 0
+        exercise = lifestyle_factors.get("exercise_weekly_hours") or 0
+        
+        # Ensure numeric values
+        try:
+            alcohol = float(alcohol) if alcohol else 0
+        except (TypeError, ValueError):
+            alcohol = 0
+        try:
+            exercise = float(exercise) if exercise else 0
+        except (TypeError, ValueError):
+            exercise = 0
         
         risk_score = 0
         if smoking:

@@ -6,8 +6,11 @@ import { PersonaProvider } from '@/lib/PersonaContext';
 const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
-  title: 'WorkbenchIQ',
-  description: 'Multi-persona document processing workbench powered by AI',
+  title: 'InsureAI - Instant Life Insurance Quotes',
+  description: 'AI-powered life insurance underwriting with real-time health data integration',
+  icons: {
+    icon: '/favicon.svg',
+  },
 };
 
 export default function RootLayout({

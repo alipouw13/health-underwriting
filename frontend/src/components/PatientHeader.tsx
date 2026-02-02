@@ -60,7 +60,8 @@ export default function PatientHeader({ application }: PatientHeaderProps) {
           <h1 className="text-2xl font-bold text-slate-900">
             {hasValue(patient.name) ? patient.name : `Application ${application.id}`}
           </h1>
-          {application.external_reference && (
+          {/* Only show external reference if it's not an end_user reference */}
+          {application.external_reference && !application.external_reference.startsWith('end_user_') && (
             <>
               <span className="text-lg text-slate-600">-</span>
               <span className="text-lg font-medium text-blue-600">

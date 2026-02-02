@@ -247,13 +247,28 @@ export default function EndUserPage() {
           <AppleHealthConnect
             session={session}
             onConnected={(result) => {
-              setSession({
-                ...session,
-                apple_health_connected: true,
-                application_id: result.application_id,
-                flow_state: 'health_connected',
-              });
-              setFlowState('dashboard');
+              // Redirect to the main admin view with the created application
+              // The applicant=true query param shows the applicant header/progress
+              const appId = result.application_id;
+              if (appId) {
+                // Store session info for the admin view
+                sessionStorage.setItem('applicantSession', JSON.stringify({
+                  ...session,
+                  application_id: appId,
+                  apple_health_connected: true,
+                }));
+                // Redirect to main page with the application and applicant mode
+                window.location.href = `/?app=${appId}&applicant=true`;
+              } else {
+                // Fallback to dashboard if no app ID
+                setSession({
+                  ...session,
+                  apple_health_connected: true,
+                  application_id: result.application_id,
+                  flow_state: 'health_connected',
+                });
+                setFlowState('dashboard');
+              }
             }}
             onBack={handleBack}
           />

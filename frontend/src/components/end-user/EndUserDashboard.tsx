@@ -362,6 +362,20 @@ export default function EndUserDashboard({ session, connectionResult, onLogout }
                     <p className="text-sm text-blue-800">{analysisResult.explanation}</p>
                   </div>
                 )}
+
+                {/* View Full Report Button */}
+                {session.application_id && (
+                  <div className="mt-4 pt-4 border-t border-gray-200">
+                    <a
+                      href={`/?app=${session.application_id}`}
+                      className="w-full inline-flex items-center justify-center gap-2 py-2.5 px-4 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700 transition-colors"
+                    >
+                      <FileText className="w-4 h-4" />
+                      View Full Report in Admin Portal
+                      <ArrowRight className="w-4 h-4" />
+                    </a>
+                  </div>
+                )}
               </div>
             )}
           </div>

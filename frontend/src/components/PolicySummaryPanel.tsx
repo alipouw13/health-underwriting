@@ -181,7 +181,7 @@ export default function PolicySummaryPanel({
               </div>
               {agentProgress.length > 0 ? (
                 <div className="text-xs text-slate-500">
-                  Step {Math.max(...agentProgress.map(p => p.step_number), 1)} of 3 agents processing...
+                  Step {Math.max(...agentProgress.map(p => p.step_number), 1)} of 4 agents processing...
                 </div>
               ) : (
                 <div className="flex items-center gap-2">
@@ -301,7 +301,7 @@ export default function PolicySummaryPanel({
             <AgentProgressTracker progress={agentProgress} compact={false} showTitle={false} />
             {agentProgress.length > 0 ? (
               <div className="text-xs text-slate-500">
-                Step {Math.max(...agentProgress.map(p => p.step_number), 1)} of 3 agents processing...
+                Step {Math.max(...agentProgress.map(p => p.step_number), 1)} of 4 agents processing...
               </div>
             ) : (
               <div className="flex items-center gap-2">

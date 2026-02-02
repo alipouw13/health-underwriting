@@ -2982,87 +2982,96 @@ async def _create_application_from_apple_health(
     coverage_amount: float,
 ) -> str:
     """
-    Create an application record from Apple Health mock data.
+    Create an application record from Apple Health mock data using LLM.
     
-    Uses the SAME structure and backend as admin uploads.
-    The application is marked with:
-    - source = "end_user"
-    - ingestion_type = "apple_health_mock"
+    This function:
+    1. Calls LLM to generate a realistic application form document
+    2. Creates an application with the generated document as markdown
+    3. Extracts structured data for the agent pipeline
+    
+    The result is an application that looks like a real uploaded document
+    but is generated from the user's profile and Apple Health data.
     """
     from datetime import datetime, timezone
+    from app.end_user import generate_and_extract_application
     
     settings = load_settings()
     app_id = f"eu_{uuid.uuid4().hex[:6]}"  # Prefix to distinguish end-user apps
+    
+    # Prepare user profile dict
+    user_profile = {
+        "user_id": session.user_id,
+        "first_name": session.profile.first_name,
+        "last_name": session.profile.last_name,
+        "date_of_birth": session.profile.date_of_birth,
+        "age": session.profile.age,
+        "biological_sex": session.profile.biological_sex,
+    }
+    
+    # Prepare Apple Health data dict
+    health_data = apple_health_data.to_health_metrics_dict()
+    health_data["height_cm"] = apple_health_data.height_cm
+    health_data["weight_kg"] = apple_health_data.weight_kg
+    health_data["bmi"] = apple_health_data.bmi
+    health_data["hrv_avg_ms"] = apple_health_data.hrv_avg_ms
+    health_data["weekly_exercise_sessions"] = apple_health_data.weekly_exercise_sessions
+    health_data["elevated_hr_events"] = apple_health_data.elevated_hr_events
+    health_data["sleep_efficiency_pct"] = apple_health_data.sleep_efficiency_pct
+    health_data["activity_trend_weekly"] = apple_health_data.activity_trend_weekly
+    
+    logger.info(
+        "END USER APPLICATION: Generating LLM-based application for %s %s",
+        session.profile.first_name, session.profile.last_name
+    )
+    
+    # Generate the application document and extract data using LLM
+    generated = await generate_and_extract_application(
+        user_profile=user_profile,
+        apple_health_data=health_data,
+        policy_type=policy_type,
+        coverage_amount=coverage_amount,
+    )
     
     # Create application metadata using the SAME structure as admin uploads
     app_md = ApplicationMetadata(
         id=app_id,
         created_at=datetime.now(timezone.utc).isoformat(),
         external_reference=f"end_user_{session.user_id}",
-        status="ready_for_analysis",
-        files=[],  # No files for end-user flow
+        status="completed",  # Mark as completed since we have full data
+        files=[],  # No uploaded files
         persona="underwriting",  # SAME persona as underwriting
     )
     
-    # Build LLM outputs structure that matches what extraction produces
-    # This allows the SAME agent pipeline to process it
-    patient_profile = apple_health_data.to_patient_profile_dict(
-        first_name=session.profile.first_name,
-        last_name=session.profile.last_name,
-        date_of_birth=session.profile.date_of_birth,
-        biological_sex=session.profile.biological_sex,
-        policy_type=policy_type,
-        coverage_amount=coverage_amount,
-    )
+    # Store the generated document markdown (like Content Understanding output)
+    app_md.document_markdown = generated["document_markdown"]
     
-    health_metrics = apple_health_data.to_health_metrics_dict()
+    # Store markdown pages for source viewing
+    app_md.markdown_pages = [{
+        "page_number": 1,
+        "content": generated["document_markdown"],
+        "title": "Generated Application Form",
+    }]
     
-    # Structure LLM outputs to match what agents expect
-    app_md.llm_outputs = {
-        "patient_summary": {
-            "patient_id": session.user_id,
-            "name": session.profile.full_name,
-            "age": session.profile.age,
-            "gender": session.profile.biological_sex,
-            "policy_type": policy_type,
-            "coverage_amount": coverage_amount,
-        },
-        "patient_profile": patient_profile,
-        "health_metrics": health_metrics,
-        "medical_timeline": [],  # No timeline for mock data
-        "diagnoses_conditions": [],
-        "medications": [],
-        "lab_results": [],
-        "source": "end_user",
-        "ingestion_type": "apple_health_mock",
-        "end_user_id": session.user_id,
-        "session_id": session.session_id,
-    }
+    # Store LLM outputs (structured data extracted from the document)
+    app_md.llm_outputs = generated["llm_outputs"]
+    app_md.llm_outputs["end_user_id"] = session.user_id
+    app_md.llm_outputs["session_id"] = session.session_id
     
-    # Store extracted fields for agent processing
-    app_md.extracted_fields = {
-        "applicant_name": session.profile.full_name,
-        "applicant_age": session.profile.age,
-        "applicant_dob": session.profile.date_of_birth.isoformat(),
-        "biological_sex": session.profile.biological_sex,
-        "bmi": apple_health_data.bmi,
-        "policy_type": policy_type,
-        "coverage_amount": coverage_amount,
-        "data_source": "apple_health_mock",
-    }
+    # Store extracted fields for display
+    app_md.extracted_fields = generated["extracted_fields"]
     
-    # Set confidence summary (mock data has 100% confidence since it's generated)
+    # Set confidence summary
     app_md.confidence_summary = {
-        "overall_confidence": 1.0,
+        "overall_confidence": 0.95,  # High confidence for LLM-generated
         "fields_extracted": len(app_md.extracted_fields),
-        "source": "apple_health_mock",
+        "source": "llm_generated_application",
     }
     
     # Save application using the SAME storage as admin uploads
     save_application_metadata(settings.app.storage_root, app_md)
     
     logger.info(
-        "END USER APPLICATION: Created application %s for user %s (source=end_user, type=%s, amount=%.0f)",
+        "END USER APPLICATION: Created LLM-generated application %s for user %s (source=end_user, type=%s, amount=%.0f)",
         app_id, session.user_id, policy_type, coverage_amount
     )
     
