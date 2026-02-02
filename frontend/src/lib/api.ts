@@ -184,7 +184,23 @@ export function extractPatientInfo(app: ApplicationMetadata): PatientInfo {
     // Handle both object format {field_name, value} and simple key-value format
     const fieldValues = Object.entries(fields);
     for (const [fieldKey, fieldVal] of fieldValues) {
+      // Check if the key matches
       if (fieldKey === key || fieldKey.toLowerCase().includes(key.toLowerCase())) {
+        // If fieldVal is an object with a 'value' property, extract that
+        if (typeof fieldVal === 'object' && fieldVal !== null) {
+          const obj = fieldVal as any;
+          // Check for 'value' property (common in extracted_fields format)
+          if ('value' in obj) {
+            return obj.value?.toString() || 'N/A';
+          }
+          // Check for 'field_name' property (Content Understanding format)
+          if ('field_name' in obj && 'value' in obj) {
+            return obj.value?.toString() || 'N/A';
+          }
+          // For other objects, don't return [object Object]
+          return 'N/A';
+        }
+        // Simple string/number value
         return fieldVal?.toString() || 'N/A';
       }
       // Also check if it's an object with field_name property

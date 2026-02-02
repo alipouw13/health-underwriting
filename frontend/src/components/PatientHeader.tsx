@@ -53,45 +53,46 @@ export default function PatientHeader({ application }: PatientHeaderProps) {
   };
 
   return (
-    <header className="bg-white border-b border-slate-200 px-6 py-4">
-      <div className="flex items-center justify-between">
-        {/* Patient Name and Application Info */}
-        <div className="flex items-baseline gap-3">
-          <h1 className="text-2xl font-bold text-slate-900">
-            {hasValue(patient.name) ? patient.name : `Application ${application.id}`}
-          </h1>
-          {/* Only show external reference if it's not an end_user reference */}
-          {application.external_reference && !application.external_reference.startsWith('end_user_') && (
-            <>
-              <span className="text-lg text-slate-600">-</span>
-              <span className="text-lg font-medium text-blue-600">
-                {application.external_reference}
-              </span>
-            </>
-          )}
-          <span className={`ml-2 px-2 py-0.5 text-xs rounded-full ${
-            application.status === 'completed' ? 'bg-emerald-100 text-emerald-700' :
-            application.status === 'extracted' ? 'bg-sky-100 text-sky-700' :
-            application.status === 'error' ? 'bg-rose-100 text-rose-700' :
-            'bg-amber-100 text-amber-700'
-          }`}>
-            {application.status}
-          </span>
+    <header className="bg-white border-b border-slate-200">
+      <div className="max-w-7xl mx-auto px-6 py-4">
+        <div className="flex items-center justify-between">
+          {/* Patient Name and Application Info */}
+          <div className="flex items-baseline gap-3">
+            <h1 className="text-2xl font-bold text-slate-900">
+              {hasValue(patient.name) ? patient.name : `Application ${application.id}`}
+            </h1>
+            {/* Only show external reference if it's not an end_user reference */}
+            {application.external_reference && !application.external_reference.startsWith('end_user_') && (
+              <>
+                <span className="text-lg text-slate-600">-</span>
+                <span className="text-lg font-medium text-blue-600">
+                  {application.external_reference}
+                </span>
+              </>
+            )}
+            <span className={`ml-2 px-2 py-0.5 text-xs rounded-full ${
+              application.status === 'completed' ? 'bg-emerald-100 text-emerald-700' :
+              application.status === 'extracted' ? 'bg-sky-100 text-sky-700' :
+              application.status === 'error' ? 'bg-rose-100 text-rose-700' :
+              'bg-amber-100 text-amber-700'
+            }`}>
+              {application.status}
+            </span>
+          </div>
+
+          {/* Search */}
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <input
+              type="text"
+              placeholder="Search in document..."
+              className="pl-9 pr-4 py-2 w-64 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+            />
+          </div>
         </div>
 
-        {/* Search */}
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-          <input
-            type="text"
-            placeholder="Search in document..."
-            className="pl-9 pr-4 py-2 w-64 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-          />
-        </div>
-      </div>
-
-      {/* Patient Details Row - only show if we have data */}
-      <div className="flex flex-wrap items-center gap-x-8 gap-y-2 mt-4 text-sm">
+        {/* Patient Details Row - only show if we have data */}
+        <div className="flex flex-wrap items-center gap-x-8 gap-y-2 mt-4 text-sm">
         {hasValue(patient.name) && (
           <div className="flex items-center gap-2">
             <span className="text-slate-500">Patient name</span>
@@ -193,6 +194,7 @@ export default function PatientHeader({ application }: PatientHeaderProps) {
           Patient information not extracted. Check the Source Pages for raw document content.
         </p>
       )}
+    </div>
     </header>
   );
 }

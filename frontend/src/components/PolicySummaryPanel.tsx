@@ -171,14 +171,12 @@ export default function PolicySummaryPanel({
           {/* Show agent progress when running */}
           {isRunningAnalysis ? (
             <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 text-sm text-blue-600 font-medium">
-                  <Users className="w-4 h-4" />
-                  <span>Multi-Agent Orchestration Running</span>
-                </div>
-                {/* Compact horizontal progress bar */}
-                <AgentProgressTracker progress={agentProgress} compact showTitle={false} />
+              <div className="flex items-center gap-2 text-sm text-blue-600 font-medium">
+                <Users className="w-4 h-4" />
+                <span>Multi-Agent Orchestration Running</span>
               </div>
+              {/* Full detailed agent progress tracker */}
+              <AgentProgressTracker progress={agentProgress} compact={false} showTitle={false} />
               {agentProgress.length > 0 ? (
                 <div className="text-xs text-slate-500">
                   Step {Math.max(...agentProgress.map(p => p.step_number), 1)} of 4 agents processing...
@@ -189,11 +187,6 @@ export default function PolicySummaryPanel({
                   <span className="text-xs text-slate-500">Initializing agents...</span>
                 </div>
               )}
-            </div>
-          ) : isRunningAnalysis ? (
-            <div className="flex flex-col items-center py-6">
-              <Loader2 className="w-10 h-10 text-blue-500 animate-spin mb-4" />
-              <p className="text-sm text-slate-600">Initializing agents...</p>
             </div>
           ) : (
             <div className="text-center">

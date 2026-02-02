@@ -51,6 +51,24 @@ export default function TopNav({
 
   const selectedApplication = applications.find(a => a.id === selectedAppId);
 
+  // Helper to get a short display name for an application
+  const getAppDisplayName = (app: ApplicationListItem | undefined): string => {
+    if (!app) return 'Select Application';
+    
+    // For end-user (Apple Health) applications, show patient name + short ID
+    if (app.external_reference?.startsWith('end_user_')) {
+      // Try to extract name from summary_title (format: "Name is a X-year-old...")
+      const nameMatch = app.summary_title?.match(/^([A-Z][a-z]+ [A-Z][a-z]+)/);
+      if (nameMatch) {
+        return `${nameMatch[1]} (${app.id})`;
+      }
+      return app.id;
+    }
+    
+    // For regular applications, use summary_title or short ID
+    return app.summary_title || app.id.substring(0, 8);
+  };
+
   return (
     <header className="bg-white border-b border-slate-200 sticky top-0 z-50">
       {/* Top Bar */}
@@ -78,7 +96,7 @@ export default function TopNav({
                 className="flex items-center gap-2 px-3 py-1.5 bg-slate-50 hover:bg-slate-100 rounded-lg border border-slate-200 transition-colors"
               >
                 <span className="text-sm font-medium text-slate-700">
-                  {selectedApplication?.summary_title || selectedApplication?.id?.substring(0, 8) || 'Select Application'}
+                  {getAppDisplayName(selectedApplication)}
                 </span>
                 <ChevronDown className={clsx('w-4 h-4 text-slate-500 transition-transform', appDropdownOpen && 'rotate-180')} />
               </button>
@@ -101,10 +119,10 @@ export default function TopNav({
                           )}
                         >
                           <div className="font-medium truncate">
-                            {app.summary_title || app.id.substring(0, 8)}
+                            {getAppDisplayName(app)}
                           </div>
                           <div className="text-xs text-slate-500 flex items-center gap-2">
-                            {app.external_reference || 'No reference'}
+                            {app.external_reference?.startsWith('end_user_') ? 'Apple Health' : (app.external_reference || 'No reference')}
                             <span className={clsx(
                               'px-1.5 py-0.5 rounded text-[10px] font-medium',
                               app.status === 'completed' ? 'bg-emerald-100 text-emerald-700' :

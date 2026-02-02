@@ -63,6 +63,7 @@ export default function AdminPage() {
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [externalRef, setExternalRef] = useState('');
   const [dragActive, setDragActive] = useState(false);
+  const [selectedAppId, setSelectedAppId] = useState<string | null>(null);
   
   // Track which app is being polled to avoid duplicate polling
   const pollingAppIdRef = useRef<string | null>(null);
@@ -412,6 +413,9 @@ export default function AdminPage() {
         externalRef || undefined,
         currentPersona
       );
+      
+      // Auto-select the newly created application
+      setSelectedAppId(app.id);
       
       // Reset form
       setSelectedFiles([]);
@@ -935,6 +939,85 @@ export default function AdminPage() {
           </button>
         </div>
 
+        {/* Selected Application Preview */}
+        {selectedAppId && (() => {
+          const selectedApp = applications.find(a => a.id === selectedAppId);
+          if (!selectedApp) return null;
+          return (
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 lg:col-span-2">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-xl font-semibold text-slate-900">
+                  Selected Application
+                </h2>
+                <button
+                  onClick={() => setSelectedAppId(null)}
+                  className="text-sm text-slate-500 hover:text-slate-700"
+                >
+                  ✕ Close
+                </button>
+              </div>
+              
+              <div className="flex items-start justify-between">
+                <div className="flex-1">
+                  <div className="flex items-center gap-3 mb-2">
+                    <span className="font-mono text-lg font-semibold text-slate-900">
+                      {selectedApp.id}
+                    </span>
+                    {selectedApp.processing_status ? (
+                      <span className="px-3 py-1 text-sm rounded-full bg-amber-100 text-amber-700 flex items-center gap-2">
+                        <span className="inline-block w-2 h-2 bg-amber-500 rounded-full animate-pulse"></span>
+                        {selectedApp.processing_status === 'extracting' ? 'Extracting...' : 
+                         selectedApp.processing_status === 'analyzing' ? 'Analyzing...' : 
+                         selectedApp.processing_status}
+                      </span>
+                    ) : (
+                      <span className={`px-3 py-1 text-sm rounded-full ${getStatusBadge(selectedApp.status)}`}>
+                        {selectedApp.status}
+                      </span>
+                    )}
+                  </div>
+                  
+                  {selectedApp.external_reference && (
+                    <p className="text-sm text-slate-600 mb-1">
+                      <span className="font-medium">Reference:</span> {selectedApp.external_reference}
+                    </p>
+                  )}
+                  
+                  {selectedApp.created_at && (
+                    <p className="text-sm text-slate-500">
+                      Created: {new Date(selectedApp.created_at).toLocaleString()}
+                    </p>
+                  )}
+                  
+                  {selectedApp.summary_title && (
+                    <p className="text-sm text-slate-700 mt-2 line-clamp-2">
+                      {selectedApp.summary_title}
+                    </p>
+                  )}
+                </div>
+                
+                <div className="flex items-center gap-2 ml-4">
+                  {selectedApp.status === 'completed' && (
+                    <Link
+                      href={`/?id=${selectedApp.id}`}
+                      className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors flex items-center gap-2"
+                    >
+                      <FileText className="w-4 h-4" />
+                      View Application
+                    </Link>
+                  )}
+                  {selectedApp.processing_status && (
+                    <div className="flex items-center gap-2 text-amber-600">
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                      <span className="text-sm font-medium">Processing...</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+
         {/* Applications List */}
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
           <div className="flex items-center justify-between mb-4">
@@ -959,9 +1042,15 @@ export default function AdminPage() {
               No applications found. Upload documents to get started.
             </div>
           ) : (
-            <ul className="divide-y divide-slate-200">
+            <ul className="divide-y divide-slate-200 max-h-[600px] overflow-y-auto">
               {applications.map((app) => (
-                <li key={app.id} className="py-4">
+                <li 
+                  key={app.id} 
+                  className={`py-4 cursor-pointer transition-colors hover:bg-slate-50 px-2 -mx-2 rounded-lg ${
+                    selectedAppId === app.id ? 'bg-indigo-50 border-l-4 border-indigo-500 pl-3' : ''
+                  }`}
+                  onClick={() => setSelectedAppId(app.id)}
+                >
                   <div className="flex items-center justify-between">
                     <div>
                       <div className="flex items-center gap-2">
