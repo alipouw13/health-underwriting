@@ -2,7 +2,7 @@
 
 ## Overview
 
-This specification defines the implementation of a comprehensive underwriting policy system for WorkbenchIQ, including:
+This specification defines the implementation of a comprehensive underwriting policy system for InsureAI, including:
 
 1. **Underwriting Policy File** - A JSON-based underwriting manual for life & health applications
 2. **Policy-Driven Risk Ratings** - Risk assessments with rationale and policy citations

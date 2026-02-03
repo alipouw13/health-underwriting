@@ -21,12 +21,12 @@
 1. Go to **Azure Portal** → **Create a Resource** → **Azure Database for PostgreSQL Flexible Server**
 2. Configure:
    - **Resource Group**: Your existing RG or create new
-   - **Server Name**: `workbenchiq-db` (must be globally unique)
+   - **Server Name**: `insureai-db` (must be globally unique)
    - **Region**: Same as your other resources
    - **Workload Type**: Development (for dev/test) or Production
    - **Compute + Storage**: B2ms (2 vCores, 4GB RAM) for dev
    - **Authentication**: PostgreSQL authentication
-   - **Admin Username**: `workbenchiq_admin`
+   - **Admin Username**: `insureai_admin`
    - **Password**: Generate strong password, save securely
 3. **Networking**:
    - Enable **Public access** for development
@@ -38,14 +38,14 @@
 
 ```bash
 # Create resource group (if needed)
-az group create --name workbenchiq-rg --location eastus
+az group create --name insureai-rg --location eastus
 
 # Create PostgreSQL Flexible Server
 az postgres flexible-server create \
-  --resource-group workbenchiq-rg \
-  --name workbenchiq-db \
+  --resource-group insureai-rg \
+  --name insureai-db \
   --location eastus \
-  --admin-user workbenchiq_admin \
+  --admin-user insureai_admin \
   --admin-password "YourSecurePassword123!" \
   --sku-name Standard_B2ms \
   --storage-size 32 \
@@ -54,8 +54,8 @@ az postgres flexible-server create \
 
 # Enable pgvector extension
 az postgres flexible-server parameter set \
-  --resource-group workbenchiq-rg \
-  --server-name workbenchiq-db \
+  --resource-group insureai-rg \
+  --server-name insureai-db \
   --name azure.extensions \
   --value vector
 ```
@@ -68,15 +68,15 @@ Connect to your database and enable the extension:
 
 ```bash
 # Connect via psql
-psql "host=workbenchiq-db.postgres.database.azure.com port=5432 dbname=postgres user=workbenchiq_admin sslmode=require"
+psql "host=insureai-db.postgres.database.azure.com port=5432 dbname=postgres user=insureai_admin sslmode=require"
 ```
 
 ```sql
 -- Create application database
-CREATE DATABASE workbenchiq;
+CREATE DATABASE insureai;
 
 -- Connect to it
-\c workbenchiq
+\c insureai
 
 -- Enable required extensions
 CREATE EXTENSION IF NOT EXISTS vector;
@@ -94,8 +94,8 @@ Run the initial schema migration:
 
 ```sql
 -- Create schema
-CREATE SCHEMA IF NOT EXISTS workbenchiq;
-SET search_path TO workbenchiq, public;
+CREATE SCHEMA IF NOT EXISTS insureai;
+SET search_path TO insureai, public;
 
 -- Policy chunks table with vector embeddings
 CREATE TABLE policy_chunks (
@@ -140,10 +140,10 @@ Add to your `.env` file:
 ```bash
 # Database Configuration
 DATABASE_BACKEND=postgresql
-POSTGRESQL_HOST=workbenchiq-db.postgres.database.azure.com
+POSTGRESQL_HOST=insureai-db.postgres.database.azure.com
 POSTGRESQL_PORT=5432
-POSTGRESQL_DATABASE=workbenchiq
-POSTGRESQL_USER=workbenchiq_admin
+POSTGRESQL_DATABASE=insureai
+POSTGRESQL_USER=insureai_admin
 POSTGRESQL_PASSWORD=YourSecurePassword123!
 POSTGRESQL_SSL_MODE=require
 
@@ -311,7 +311,7 @@ async def index_policies():
             
             # Insert into database
             await conn.execute("""
-                INSERT INTO workbenchiq.policy_chunks 
+                INSERT INTO insureai.policy_chunks 
                 (policy_id, policy_name, chunk_type, category, subcategory, 
                  criteria_id, risk_level, content, content_hash, embedding,
                  token_count)
@@ -391,7 +391,7 @@ async def search_policies(question: str, top_k: int = 3):
             risk_level,
             content,
             1 - (embedding <=> '{query_embedding}'::vector) as similarity
-        FROM workbenchiq.policy_chunks
+        FROM insureai.policy_chunks
         ORDER BY embedding <=> '{query_embedding}'::vector
         LIMIT $1
     """, top_k)

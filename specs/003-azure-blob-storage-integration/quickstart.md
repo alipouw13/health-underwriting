@@ -5,13 +5,13 @@
 
 ## Overview
 
-This guide explains how to configure WorkbenchIQ to use Azure Blob Storage instead of local filesystem storage.
+This guide explains how to configure InsureAI to use Azure Blob Storage instead of local filesystem storage.
 
 ## Prerequisites
 
 - Azure subscription with a Storage Account
 - Storage account access keys (found in Azure Portal → Storage Account → Access keys)
-- WorkbenchIQ backend running
+- InsureAI backend running
 
 ## Configuration
 
@@ -36,7 +36,7 @@ export AZURE_STORAGE_ACCOUNT_NAME=your_storage_account_name
 export AZURE_STORAGE_ACCOUNT_KEY=your_storage_account_key
 
 # Optional (defaults shown)
-export AZURE_STORAGE_CONTAINER_NAME=workbenchiq-data
+export AZURE_STORAGE_CONTAINER_NAME=insureai-data
 ```
 
 ### Using .env File
@@ -47,7 +47,7 @@ Add to your `.env` file:
 STORAGE_BACKEND=azure_blob
 AZURE_STORAGE_ACCOUNT_NAME=mystorageaccount
 AZURE_STORAGE_ACCOUNT_KEY=abc123...base64key...==
-AZURE_STORAGE_CONTAINER_NAME=workbenchiq-data
+AZURE_STORAGE_CONTAINER_NAME=insureai-data
 ```
 
 ## Verification
@@ -58,7 +58,7 @@ When the application starts, it validates the storage configuration. Look for:
 
 ```
 INFO: Storage backend: azure_blob
-INFO: Storage container: workbenchiq-data
+INFO: Storage container: insureai-data
 ```
 
 If configuration is invalid:
@@ -79,7 +79,7 @@ curl -X POST "http://localhost:8000/applications" \
 ### 3. Verify in Azure Portal
 
 1. Go to Azure Portal → Your Storage Account
-2. Navigate to Containers → `workbenchiq-data`
+2. Navigate to Containers → `insureai-data`
 3. Browse to `applications/{app_id}/files/`
 4. Confirm uploaded file appears
 
@@ -117,19 +117,19 @@ curl -X POST "http://localhost:8000/applications" \
 
 ```bash
 # Create resource group
-az group create --name workbenchiq-rg --location eastus
+az group create --name insureai-rg --location eastus
 
 # Create storage account
 az storage account create \
-  --name workbenchiqstorage \
-  --resource-group workbenchiq-rg \
+  --name insureaistorage \
+  --resource-group insureai-rg \
   --location eastus \
   --sku Standard_LRS
 
 # Get access key
 az storage account keys list \
-  --account-name workbenchiqstorage \
-  --resource-group workbenchiq-rg \
+  --account-name insureaistorage \
+  --resource-group insureai-rg \
   --query '[0].value' -o tsv
 ```
 

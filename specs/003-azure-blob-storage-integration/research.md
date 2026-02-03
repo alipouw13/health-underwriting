@@ -68,14 +68,14 @@ retry_policy = ExponentialRetry(
 - Protocol provides structural typing (duck typing) which is more Pythonic
 - No inheritance required - existing `storage.py` functions can be wrapped
 - Easier testing with mock implementations
-- Aligns with existing WorkbenchIQ code style (dataclasses, type hints)
+- Aligns with existing InsureAI code style (dataclasses, type hints)
 
 **Interface Design**:
 ```python
 from typing import Protocol, Optional, List, Dict, Any
 
 class StorageProvider(Protocol):
-    """Protocol defining storage operations for WorkbenchIQ."""
+    """Protocol defining storage operations for InsureAI."""
     
     def save_file(self, app_id: str, filename: str, content: bytes) -> str:
         """Save file and return the storage path/URL."""
@@ -158,7 +158,7 @@ Note: The `data/` prefix is a local storage root concept; blob storage uses cont
 | `STORAGE_BACKEND` | No | `local` | Backend type: `local` or `azure_blob` |
 | `AZURE_STORAGE_ACCOUNT_NAME` | If azure_blob | - | Storage account name |
 | `AZURE_STORAGE_ACCOUNT_KEY` | If azure_blob | - | Storage account key |
-| `AZURE_STORAGE_CONTAINER_NAME` | No | `workbenchiq-data` | Blob container name |
+| `AZURE_STORAGE_CONTAINER_NAME` | No | `insureai-data` | Blob container name |
 
 ### 7. Error Handling Strategy
 

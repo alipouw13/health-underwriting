@@ -5,7 +5,7 @@
 
 ## Summary
 
-Add configurable storage backend to WorkbenchIQ, allowing operators to switch between local filesystem storage (default) and Azure Blob Storage via environment variables. The implementation introduces a storage provider abstraction layer that maintains the existing storage path structure (`applications/{app_id}/files/`, `metadata.json`, `content_understanding.json`) while supporting both backends transparently.
+Add configurable storage backend to InsureAI, allowing operators to switch between local filesystem storage (default) and Azure Blob Storage via environment variables. The implementation introduces a storage provider abstraction layer that maintains the existing storage path structure (`applications/{app_id}/files/`, `metadata.json`, `content_understanding.json`) while supporting both backends transparently.
 
 ## Technical Context
 

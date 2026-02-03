@@ -35,7 +35,7 @@ class StorageProvider(Protocol):
     Protocol defining the contract for storage operations.
     
     All implementations must satisfy this interface to be used
-    as the storage backend for WorkbenchIQ.
+    as the storage backend for InsureAI.
     """
     
     def save_file(
@@ -235,7 +235,7 @@ AZURE_STORAGE_ACCOUNT_KEY:
 AZURE_STORAGE_CONTAINER_NAME:
   type: string
   pattern: "^[a-z0-9](?!.*--)[a-z0-9-]{1,61}[a-z0-9]$"
-  default: workbenchiq-data
+  default: insureai-data
   description: Blob container name
 ```
 

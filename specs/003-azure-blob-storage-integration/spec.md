@@ -9,7 +9,7 @@
 
 ### User Story 1 - Configure Azure Blob Storage Backend (Priority: P1)
 
-As a DevOps engineer deploying WorkbenchIQ to Azure, I want to configure the application to use Azure Blob Storage instead of local filesystem storage, so that uploaded documents and metadata persist reliably in a scalable cloud storage solution.
+As a DevOps engineer deploying InsureAI to Azure, I want to configure the application to use Azure Blob Storage instead of local filesystem storage, so that uploaded documents and metadata persist reliably in a scalable cloud storage solution.
 
 **Why this priority**: This is the core feature - without the ability to configure Azure Blob Storage, no cloud-native deployment is possible. Local storage is unsuitable for production Azure deployments.
 
@@ -27,7 +27,7 @@ As a DevOps engineer deploying WorkbenchIQ to Azure, I want to configure the app
 
 ### User Story 2 - Default to Local Storage (Priority: P2)
 
-As a developer running WorkbenchIQ locally, I want the application to use local filesystem storage by default without any additional configuration, so that I can develop and test without Azure dependencies.
+As a developer running InsureAI locally, I want the application to use local filesystem storage by default without any additional configuration, so that I can develop and test without Azure dependencies.
 
 **Why this priority**: Maintains backward compatibility and developer experience. Existing deployments must continue working without configuration changes.
 
@@ -75,7 +75,7 @@ As an operations engineer, I want the application to validate storage configurat
 - **FR-001**: System MUST support two storage backends: `local` (filesystem) and `azure_blob` (Azure Blob Storage).
 - **FR-002**: System MUST default to `local` storage when `STORAGE_BACKEND` environment variable is not set or is empty.
 - **FR-003**: System MUST read Azure Blob Storage configuration from environment variables: `AZURE_STORAGE_ACCOUNT_NAME`, `AZURE_STORAGE_ACCOUNT_KEY`, and optionally `AZURE_STORAGE_CONTAINER_NAME`.
-- **FR-004**: System MUST use a default container name (`workbenchiq-data`) when `AZURE_STORAGE_CONTAINER_NAME` is not specified.
+- **FR-004**: System MUST use a default container name (`insureai-data`) when `AZURE_STORAGE_CONTAINER_NAME` is not specified.
 - **FR-005**: System MUST create the blob container automatically if it does not exist when using Azure Blob Storage.
 - **FR-006**: System MUST store uploaded files at path `applications/{app_id}/files/{filename}` in blob storage, mirroring local structure.
 - **FR-007**: System MUST store metadata JSON files at path `applications/{app_id}/metadata.json` in blob storage.

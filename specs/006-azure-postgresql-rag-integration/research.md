@@ -19,7 +19,7 @@ Azure Database for PostgreSQL - Flexible Server is the recommended deployment op
 
 ### 1.2 Recommended SKU
 
-For WorkbenchIQ workload (~200 policy chunks, moderate chat traffic):
+For InsureAI workload (~200 policy chunks, moderate chat traffic):
 
 | Tier | SKU | vCores | RAM | Storage | Est. Cost/Month |
 |------|-----|--------|-----|---------|-----------------|

@@ -274,7 +274,7 @@ The `pg_trgm` extension is needed for hybrid search's keyword matching (GIN inde
 PostgreSQL does not allow COALESCE in UNIQUE CONSTRAINT definitions. Use a unique INDEX instead:
 ```sql
 CREATE UNIQUE INDEX idx_policy_chunks_unique 
-ON workbenchiq.policy_chunks (policy_id, chunk_type, COALESCE(criteria_id, ''));
+ON insureai.policy_chunks (policy_id, chunk_type, COALESCE(criteria_id, ''));
 ```
 
 ### T031 Passing Embeddings to asyncpg

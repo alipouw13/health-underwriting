@@ -139,7 +139,7 @@ The primary use case is enabling RAG (Retrieval-Augmented Generation) for the "A
 │                          (with pgvector extension)                           │
 │                                                                              │
 │  ┌──────────────────────────────────────────────────────────────────────┐   │
-│  │ Schema: workbenchiq                                                   │   │
+│  │ Schema: insureai                                                   │   │
 │  │                                                                       │   │
 │  │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────────┐   │   │
 │  │  │ applications    │  │ policy_chunks   │  │ conversations       │   │   │

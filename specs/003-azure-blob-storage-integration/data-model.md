@@ -29,7 +29,7 @@ Configuration container for storage backend settings.
 | `local_root` | str | If local | `"data"` | Root directory for local storage |
 | `azure_account_name` | str | If azure_blob | - | Azure Storage account name |
 | `azure_account_key` | str | If azure_blob | - | Azure Storage account key |
-| `azure_container_name` | str | No | `"workbenchiq-data"` | Blob container name |
+| `azure_container_name` | str | No | `"insureai-data"` | Blob container name |
 | `azure_timeout_seconds` | int | No | `30` | Per-operation timeout |
 | `azure_retry_total` | int | No | `3` | Maximum retry attempts |
 
@@ -110,7 +110,7 @@ Blob paths:
   applications/{app_id}/content_understanding.json
 ```
 
-Where `{container_name}` defaults to `workbenchiq-data`.
+Where `{container_name}` defaults to `insureai-data`.
 
 ## Environment Variable Mapping
 

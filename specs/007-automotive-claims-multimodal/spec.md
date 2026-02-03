@@ -158,7 +158,7 @@ Azure Content Understanding's prebuilt analyzers (`prebuilt-documentSearch`, `pr
 │                          (with pgvector extension)                           │
 │                                                                              │
 │  ┌──────────────────────────────────────────────────────────────────────┐   │
-│  │ Schema: workbenchiq                                                   │   │
+│  │ Schema: insureai                                                   │   │
 │  │                                                                       │   │
 │  │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────────┐   │   │
 │  │  │ claims          │  │ claim_media     │  │ claim_policy_chunks │   │   │

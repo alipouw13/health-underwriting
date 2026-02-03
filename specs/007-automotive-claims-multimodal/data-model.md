@@ -575,8 +575,8 @@ CREATE EXTENSION IF NOT EXISTS vector;
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
--- Use workbenchiq schema
-SET search_path TO workbenchiq, public;
+-- Use insureai schema
+SET search_path TO insureai, public;
 
 -- 1. claim_media table
 CREATE TABLE IF NOT EXISTS claim_media (

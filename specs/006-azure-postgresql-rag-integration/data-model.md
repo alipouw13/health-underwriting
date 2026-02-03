@@ -8,7 +8,7 @@
 
 ## Overview
 
-This document defines the complete data model for the unified Azure PostgreSQL database supporting structured, semi-structured, and unstructured (vector) data for WorkbenchIQ.
+This document defines the complete data model for the unified Azure PostgreSQL database supporting structured, semi-structured, and unstructured (vector) data for InsureAI.
 
 ---
 
@@ -30,8 +30,8 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 ### Schema
 
 ```sql
-CREATE SCHEMA IF NOT EXISTS workbenchiq;
-SET search_path TO workbenchiq, public;
+CREATE SCHEMA IF NOT EXISTS insureai;
+SET search_path TO insureai, public;
 ```
 
 ---
