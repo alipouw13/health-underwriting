@@ -50,37 +50,37 @@ class TestTableCreation:
 
     @pytest.mark.integration
     def test_claim_media_table_exists(self):
-        """claim_media table should exist in workbenchiq schema."""
+        """claim_media table should exist in insureai schema."""
         # TODO: Implement when migrations are applied
         pytest.skip("Not implemented - T126 (requires database)")
 
     @pytest.mark.integration
     def test_claim_keyframes_table_exists(self):
-        """claim_keyframes table should exist in workbenchiq schema."""
+        """claim_keyframes table should exist in insureai schema."""
         # TODO: Implement when migrations are applied
         pytest.skip("Not implemented - T127 (requires database)")
 
     @pytest.mark.integration
     def test_claim_damage_areas_table_exists(self):
-        """claim_damage_areas table should exist in workbenchiq schema."""
+        """claim_damage_areas table should exist in insureai schema."""
         # TODO: Implement when migrations are applied
         pytest.skip("Not implemented - T128 (requires database)")
 
     @pytest.mark.integration
     def test_claim_repair_items_table_exists(self):
-        """claim_repair_items table should exist in workbenchiq schema."""
+        """claim_repair_items table should exist in insureai schema."""
         # TODO: Implement when migrations are applied
         pytest.skip("Not implemented - T129 (requires database)")
 
     @pytest.mark.integration
     def test_claim_policy_chunks_table_exists(self):
-        """claim_policy_chunks table should exist in workbenchiq schema."""
+        """claim_policy_chunks table should exist in insureai schema."""
         # TODO: Implement when migrations are applied
         pytest.skip("Not implemented - T130 (requires database)")
 
     @pytest.mark.integration
     def test_claim_assessments_table_exists(self):
-        """claim_assessments table should exist in workbenchiq schema."""
+        """claim_assessments table should exist in insureai schema."""
         # TODO: Implement when migrations are applied
         pytest.skip("Not implemented - T131 (requires database)")
 

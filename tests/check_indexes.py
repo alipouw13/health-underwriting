@@ -18,7 +18,7 @@ async def main():
         print("Diabetes policies:")
         rows = await conn.fetch("""
             SELECT DISTINCT policy_id, category 
-            FROM workbenchiq.policy_chunks 
+            FROM insureai.policy_chunks 
             WHERE policy_id LIKE '%DM%'
         """)
         for r in rows:
@@ -28,7 +28,7 @@ async def main():
         print("\nAll policy IDs and categories:")
         rows = await conn.fetch("""
             SELECT DISTINCT policy_id, category 
-            FROM workbenchiq.policy_chunks 
+            FROM insureai.policy_chunks 
             ORDER BY category, policy_id
         """)
         for r in rows:

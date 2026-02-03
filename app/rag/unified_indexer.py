@@ -308,7 +308,7 @@ class UnifiedPolicyIndexer:
             self.settings.rag,
         )
         
-        schema = self.settings.database.schema or "workbenchiq"
+        schema = self.settings.database.schema or "insureai"
         self.repository = UnifiedPolicyChunkRepository(
             schema=schema,
             table_name=config["table_name"],

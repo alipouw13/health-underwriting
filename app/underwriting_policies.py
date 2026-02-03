@@ -1,5 +1,5 @@
 """
-Underwriting Policy Management for WorkbenchIQ.
+Underwriting Policy Management for InsureAI.
 
 This module handles loading, validating, and formatting underwriting policies
 for injection into LLM prompts. Policies are defined in JSON files and used

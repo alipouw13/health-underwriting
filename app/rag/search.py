@@ -52,7 +52,7 @@ class PolicySearchService:
     def __init__(
         self,
         settings: Settings,
-        schema: str = "workbenchiq",
+        schema: str = "insureai",
     ):
         """
         Initialize search service.

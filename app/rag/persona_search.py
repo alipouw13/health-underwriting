@@ -52,7 +52,7 @@ class HealthClaimsPolicySearchService(PolicySearchService):
     Uses the health_claims_policy_chunks table for vector search.
     """
     
-    def __init__(self, settings: Settings, schema: str = "workbenchiq"):
+    def __init__(self, settings: Settings, schema: str = "insureai"):
         super().__init__(settings, schema)
         # Override table to use health claims chunks
         self.table = f"{schema}.health_claims_policy_chunks"
@@ -66,7 +66,7 @@ class AutomotiveClaimsPolicySearchService(PolicySearchService):
     This uses the unified indexer schema (same as underwriting).
     """
     
-    def __init__(self, settings: Settings, schema: str = "workbenchiq"):
+    def __init__(self, settings: Settings, schema: str = "insureai"):
         super().__init__(settings, schema)
         # Override table to use automotive claims chunks
         self.table = f"{schema}.claim_policy_chunks"
@@ -79,7 +79,7 @@ class PCClaimsPolicySearchService(PolicySearchService):
     Uses the pc_claims_policy_chunks table for vector search.
     """
     
-    def __init__(self, settings: Settings, schema: str = "workbenchiq"):
+    def __init__(self, settings: Settings, schema: str = "insureai"):
         super().__init__(settings, schema)
         # Override table to use P&C claims chunks
         self.table = f"{schema}.pc_claims_policy_chunks"
@@ -161,7 +161,7 @@ class ClaimsPolicySearchServiceAdapter:
 def get_search_service_for_persona(
     persona: str,
     settings: Settings,
-    schema: str = "workbenchiq",
+    schema: str = "insureai",
 ) -> PolicySearchService:
     """
     Get the appropriate search service for a given persona.
@@ -205,7 +205,7 @@ def get_search_service_for_persona(
         return PolicySearchService(settings, schema)
 
 
-def get_search_table_for_persona(persona: str, schema: str = "workbenchiq") -> str:
+def get_search_table_for_persona(persona: str, schema: str = "insureai") -> str:
     """
     Get the database table name for a given persona's search index.
     
@@ -214,7 +214,7 @@ def get_search_table_for_persona(persona: str, schema: str = "workbenchiq") -> s
         schema: PostgreSQL schema name
         
     Returns:
-        Full table name with schema (e.g., "workbenchiq.policy_chunks")
+        Full table name with schema (e.g., "insureai.policy_chunks")
     """
     if persona not in PERSONA_SEARCH_CONFIG:
         logger.warning(f"Unknown persona '{persona}', defaulting to underwriting table")

@@ -28,7 +28,7 @@ class PolicyChunkRepository:
     - Hash-based change detection
     """
     
-    def __init__(self, schema: str = "workbenchiq"):
+    def __init__(self, schema: str = "insureai"):
         """
         Initialize repository.
         

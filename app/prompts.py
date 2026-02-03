@@ -1,5 +1,5 @@
 """
-Prompt management for WorkbenchIQ.
+Prompt management for InsureAI.
 Handles loading and saving persona-specific prompts.
 """
 import json

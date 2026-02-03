@@ -2372,7 +2372,7 @@ export default function AdminPage() {
                 className="w-9 h-9 rounded-lg flex items-center justify-center shadow-sm"
                 style={{ background: `linear-gradient(135deg, ${personaConfig.primaryColor}, ${personaConfig.accentColor})` }}
               >
-                <span className="text-white font-bold text-xs">W.IQ</span>
+                <span className="text-white font-bold text-xs">I.AI</span>
               </div>
               <span className="font-semibold text-lg text-slate-900">InsureAI</span>
             </Link>

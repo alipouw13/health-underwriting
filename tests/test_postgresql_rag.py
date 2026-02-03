@@ -23,7 +23,7 @@ DB_CONFIG = {
     "user": os.getenv("POSTGRESQL_USER"),
     "password": os.getenv("POSTGRESQL_PASSWORD"),
     "ssl": os.getenv("POSTGRESQL_SSL_MODE", "require"),
-    "schema": os.getenv("POSTGRESQL_SCHEMA", "workbenchiq"),
+    "schema": os.getenv("POSTGRESQL_SCHEMA", "insureai"),
 }
 
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")

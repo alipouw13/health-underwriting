@@ -62,7 +62,7 @@ class PolicyIndexer:
             self.settings.rag,
         )
         self.repository = PolicyChunkRepository(
-            schema=self.settings.database.schema or "workbenchiq"
+            schema=self.settings.database.schema or "insureai"
         )
         
         # Metrics

@@ -720,7 +720,7 @@ async def submit_claim(
         async with pool.acquire() as conn:
             await conn.execute(
                 """
-                INSERT INTO workbenchiq.claims (
+                INSERT INTO insureai.claims (
                     claim_id, external_reference, claimant_name,
                     incident_description, incident_date, status, created_at
                 ) VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -816,10 +816,10 @@ async def get_processing_status(claim_id: str) -> ProcessingStatusResponse:
             row = await conn.fetchrow(
                 """
                 SELECT status, 
-                       (SELECT COUNT(*) FROM workbenchiq.claim_media WHERE claim_id = $1) as total,
-                       (SELECT COUNT(*) FROM workbenchiq.claim_media WHERE claim_id = $1 AND status = 'completed') as completed,
-                       (SELECT COUNT(*) FROM workbenchiq.claim_media WHERE claim_id = $1 AND status = 'failed') as failed
-                FROM workbenchiq.claims
+                       (SELECT COUNT(*) FROM insureai.claim_media WHERE claim_id = $1) as total,
+                       (SELECT COUNT(*) FROM insureai.claim_media WHERE claim_id = $1 AND status = 'completed') as completed,
+                       (SELECT COUNT(*) FROM insureai.claim_media WHERE claim_id = $1 AND status = 'failed') as failed
+                FROM insureai.claims
                 WHERE claim_id = $1
                 """,
                 claim_id,
@@ -1226,8 +1226,8 @@ async def get_claim_damage_summary(claim_id: str) -> List[DamageAreaResponse]:
             rows = await conn.fetch(
                 """
                 SELECT da.*, cm.media_id
-                FROM workbenchiq.damage_areas da
-                JOIN workbenchiq.claim_media cm ON da.media_id = cm.id
+                FROM insureai.damage_areas da
+                JOIN insureai.claim_media cm ON da.media_id = cm.id
                 WHERE cm.claim_id = $1
                 ORDER BY da.confidence DESC
                 """,

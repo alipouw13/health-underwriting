@@ -53,7 +53,7 @@ async def main():
     parser.add_argument(
         "--schema",
         type=str,
-        default="workbenchiq",
+        default="insureai",
         help="PostgreSQL schema name",
     )
 

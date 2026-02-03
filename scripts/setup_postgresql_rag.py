@@ -29,16 +29,16 @@ except ImportError:
 
 # Default configuration
 DEFAULT_CONFIG = {
-    "resource_group": "workbenchiq-rg",
-    "server_name": "workbenchiq-db",
+    "resource_group": "insureai-rg",
+    "server_name": "insureai-db",
     "location": "westus2",
-    "admin_user": "workbenchiq_admin",
+    "admin_user": "insureai_admin",
     "sku_name": "Standard_B2ms",
     "tier": "Burstable",  # Burstable for dev, GeneralPurpose for prod
     "storage_size": 32,
     "postgres_version": "15",
-    "database_name": "workbenchiq",
-    "schema_name": "workbenchiq",
+    "database_name": "insureai",
+    "schema_name": "insureai",
 }
 
 # Schema SQL for creating tables
@@ -538,16 +538,16 @@ def use_existing_connection() -> tuple[bool, dict, str]:
     if host and password:
         print("\n✅ Found existing PostgreSQL configuration in environment:")
         print(f"   Host: {host}")
-        print(f"   Database: {os.getenv('POSTGRESQL_DATABASE', 'workbenchiq')}")
+        print(f"   Database: {os.getenv('POSTGRESQL_DATABASE', 'insureai')}")
         
         response = input("\nUse existing configuration? (Y/n): ").strip().lower()
         if response != 'n':
             config = {
                 "server_name": host.replace(".postgres.database.azure.com", ""),
-                "database_name": os.getenv("POSTGRESQL_DATABASE", "workbenchiq"),
-                "admin_user": os.getenv("POSTGRESQL_USER", "workbenchiq_admin"),
-                "schema_name": os.getenv("POSTGRESQL_SCHEMA", "workbenchiq"),
-                "resource_group": os.getenv("POSTGRESQL_RESOURCE_GROUP", "workbenchiq-rg"),
+                "database_name": os.getenv("POSTGRESQL_DATABASE", "insureai"),
+                "admin_user": os.getenv("POSTGRESQL_USER", "insureai_admin"),
+                "schema_name": os.getenv("POSTGRESQL_SCHEMA", "insureai"),
+                "resource_group": os.getenv("POSTGRESQL_RESOURCE_GROUP", "insureai-rg"),
                 "location": os.getenv("POSTGRESQL_LOCATION", "eastus"),
                 "sku_name": DEFAULT_CONFIG["sku_name"],
                 "storage_size": DEFAULT_CONFIG["storage_size"],

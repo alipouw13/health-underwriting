@@ -84,7 +84,7 @@ class ClaimsPolicyChunkRepository:
         WITH (lists = 10);
     """
 
-    def __init__(self, schema: str = "workbenchiq"):
+    def __init__(self, schema: str = "insureai"):
         """
         Initialize repository.
 
@@ -280,7 +280,7 @@ class ClaimsPolicyIndexer:
             self.settings.rag,
         )
         self.repository = ClaimsPolicyChunkRepository(
-            schema=self.settings.database.schema or "workbenchiq"
+            schema=self.settings.database.schema or "insureai"
         )
 
         # Metrics

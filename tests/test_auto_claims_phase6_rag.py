@@ -160,7 +160,7 @@ class TestClaimsPolicyChunkRepository:
     @pytest.fixture
     def repository(self):
         """Create repository instance."""
-        return ClaimsPolicyChunkRepository(schema="workbenchiq")
+        return ClaimsPolicyChunkRepository(schema="insureai")
 
     def test_repository_table_sql_valid(self, repository):
         """T076: Repository has valid CREATE TABLE SQL."""
@@ -288,7 +288,7 @@ class TestClaimsPolicySearchService:
     def test_search_service_initialization(self, search_service):
         """T080: Search service initializes correctly."""
         assert search_service.embedding_service is not None
-        assert search_service.table == "workbenchiq.claim_policy_chunks"
+        assert search_service.table == "insureai.claim_policy_chunks"
 
     @pytest.mark.asyncio
     async def test_semantic_search(self, search_service):
