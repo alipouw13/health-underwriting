@@ -63,51 +63,51 @@ InsureAI delivers measurable business impact across insurance operations:
 │                    └───────────┬───────────┘                                 │
 └────────────────────────────────┼─────────────────────────────────────────────┘
                                  │ REST API / SSE
-┌────────────────────────────────┼─────────────────────────────────────────────┐
-│                    ┌───────────▼───────────┐                                 │
-│                    │   FastAPI Backend     │                                 │
-│                    │    (Python 3.10+)     │                                 │
-│                    └───────────┬───────────┘                                 │
-│                                │                                             │
-│    ┌───────────────────────────┼───────────────────────────┐                 │
-│    │                           │                           │                 │
-│    ▼                           ▼                           ▼                 │
+┌────────────────────────────────┼────────────────────────────────────────────┐
+│                    ┌───────────▼───────────┐                                │
+│                    │   FastAPI Backend     │                                │
+│                    │    (Python 3.10+)     │                                │
+│                    └───────────┬───────────┘                                │
+│                                │                                            │
+│    ┌───────────────────────────┼───────────────────────────┐                │
+│    │                           │                           │                │
+│    ▼                           ▼                           ▼                │
 │ ┌──────────────┐    ┌──────────────────┐    ┌─────────────────────┐         │
 │ │   Personas   │    │  Multi-Agent     │    │   End User Flow     │         │
 │ │    Engine    │    │  Orchestrator    │    │   (Apple Health)    │         │
 │ └──────────────┘    └────────┬─────────┘    └─────────────────────┘         │
-│                              │                                               │
-│         ┌────────────────────┼────────────────────┐                          │
-│         │                    │                    │                          │
-│         ▼                    ▼                    ▼                          │
+│                              │                                              │
+│         ┌────────────────────┼────────────────────┐                         │
+│         │                    │                    │                         │
+│         ▼                    ▼                    ▼                         │
 │  ┌─────────────┐   ┌─────────────────┐   ┌─────────────────┐                │
 │  │   Health    │   │   Policy Risk   │   │  Business Rules │                │
 │  │   Data      │   │     Agent       │   │   Validation    │                │
 │  │   Analysis  │   │                 │   │     Agent       │                │
 │  └─────────────┘   └─────────────────┘   └─────────────────┘                │
-│         │                    │                    │                          │
-│         └────────────────────┼────────────────────┘                          │
-│                              ▼                                               │
-│                    ┌─────────────────┐                                       │
-│                    │  Communication  │                                       │
-│                    │     Agent       │                                       │
-│                    └─────────────────┘                                       │
-│                              │                                               │
-│                              ▼                                               │
-│                    ┌─────────────────┐                                       │
-│                    │ Foundry Evals   │                                       │
-│                    │ (Quality Scores)│                                       │
-│                    └─────────────────┘                                       │
-│                                                                              │
-│                         BACKEND SERVICES                                     │
-└──────────────────────────────────────────────────────────────────────────────┘
+│         │                    │                    │                         │
+│         └────────────────────┼────────────────────┘                         │
+│                              ▼                                              │
+│                    ┌─────────────────┐                                      │
+│                    │  Communication  │                                      │
+│                    │     Agent       │                                      │
+│                    └─────────────────┘                                      │
+│                              │                                              │
+│                              ▼                                              │
+│                    ┌─────────────────┐                                      │
+│                    │ Foundry Evals   │                                      │
+│                    │ (Quality Scores)│                                      │
+│                    └─────────────────┘                                      │
+│                                                                             │
+│                         BACKEND SERVICES                                    │
+└─────────────────────────────────────────────────────────────────────────────┘
                                  │
-┌────────────────────────────────┼─────────────────────────────────────────────┐
-│                           AZURE AI SERVICES                                  │
-│                                │                                             │
-│    ┌───────────────────────────┼───────────────────────────┐                 │
-│    │                           │                           │                 │
-│    ▼                           ▼                           ▼                 │
+┌────────────────────────────────┼────────────────────────────────────────────┐
+│                           AZURE AI SERVICES                                 │
+│                                │                                            │
+│    ┌───────────────────────────┼───────────────────────────┐                │
+│    │                           │                           │                │
+│    ▼                           ▼                           ▼                │
 │ ┌──────────────┐    ┌──────────────────┐    ┌─────────────────────┐         │
 │ │  Azure AI    │    │   Azure OpenAI   │    │   Azure AI Foundry  │         │
 │ │   Content    │    │    Service       │    │      Agents         │         │
@@ -117,18 +117,18 @@ InsureAI delivers measurable business impact across insurance operations:
 │ │• OCR/Layout  │    │  • Chat          │    │  • Communication    │         │
 │ │• Extraction  │    │                  │    │                     │         │
 │ └──────────────┘    └──────────────────┘    └─────────────────────┘         │
-│                                                                              │
+│                                                                             │
 │    ┌──────────────────────────────────────────────────────────────┐         │
-│    │                    Azure AI Evaluation SDK                    │         │
+│    │                    Azure AI Evaluation SDK                   │         │
 │    │  • Groundedness • Coherence • Relevance • Fluency            │         │
 │    └──────────────────────────────────────────────────────────────┘         │
-└──────────────────────────────────────────────────────────────────────────────┘
+└─────────────────────────────────────────────────────────────────────────────┘
                                  │
-┌────────────────────────────────┼─────────────────────────────────────────────┐
-│                           DATA SERVICES                                      │
-│    ┌───────────────────────────┼───────────────────────────┐                 │
-│    │                           │                           │                 │
-│    ▼                           ▼                           ▼                 │
+┌────────────────────────────────┼────────────────────────────────────────────┐
+│                           DATA SERVICES                                     │
+│    ┌───────────────────────────┼───────────────────────────┐                │
+│    │                           │                           │                │
+│    ▼                           ▼                           ▼                │
 │ ┌──────────────┐    ┌──────────────────┐    ┌─────────────────────┐         │
 │ │ Azure Blob   │    │   Azure Cosmos   │    │  Azure PostgreSQL   │         │
 │ │   Storage    │    │      DB          │    │  (Optional RAG)     │         │
@@ -137,19 +137,19 @@ InsureAI delivers measurable business impact across insurance operations:
 │ │• PDFs        │    │• Token Tracking  │    │  • Policy Chunks    │         │
 │ │• Metadata    │    │• Evaluations     │    │  • Semantic Search  │         │
 │ └──────────────┘    └──────────────────┘    └─────────────────────┘         │
-└──────────────────────────────────────────────────────────────────────────────┘
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ### Multi-Agent Workflow
 
 ```
 ┌────────────┐    ┌─────────────────┐    ┌─────────────────┐    ┌─────────────┐
-│  Document  │───▶│  Health Data    │───▶│  Policy Risk    │───▶│  Business   │
+│  Document  │───>│  Health Data    │───>│  Policy Risk    │───>│  Business   │
 │  Upload    │    │  Analysis Agent │    │     Agent       │    │  Rules      │
 └────────────┘    └─────────────────┘    └─────────────────┘    │ Validation  │
-                         │                       │               └──────┬──────┘
-                         │                       │                      │
-                         ▼                       ▼                      ▼
+                         │                       │              └──────┬──────┘
+                         │                       │                     │
+                         ▼                       ▼                     ▼
                   ┌─────────────┐         ┌─────────────┐       ┌─────────────┐
                   │  Foundry    │         │  Foundry    │       │  Foundry    │
                   │  Evaluation │         │  Evaluation │       │  Evaluation │
@@ -217,31 +217,31 @@ InsureAI delivers measurable business impact across insurance operations:
 <tr>
 <td width="50%">
 
-**Underwriting Dashboard**
+**End User Flow**
 
-![Underwriting Dashboard](docs/images/dashboard.png)
+![End User Flow](docs/images/user-flow.png)
 
-*Main dashboard showing application list and document summary*
+*Self-service application flow for end users with Apple Health integration*
 
 </td>
 <td width="50%">
 
-**Document Extraction**
+**Connect Health Data**
 
-![Document Extraction](docs/images/extraction-results.png)
+![Connect Health Data](docs/images/connect-data.png)
 
-*AI-powered field extraction with confidence scores*
+*Connect and import health data from Apple Health or other sources*
 
 </td>
 </tr>
 <tr>
 <td width="50%">
 
-**Claims Processing View**
+**Health Data Analysis**
 
-![Claims View](docs/images/claims-view.png)
+![Health Data Analysis](docs/images/health-data.png)
 
-*Claims processing interface for medical claim review*
+*AI-powered health metrics analysis and visualization*
 
 </td>
 <td width="50%">
@@ -257,6 +257,35 @@ InsureAI delivers measurable business impact across insurance operations:
 <tr>
 <td width="50%">
 
+**Quote Analysis**
+
+![Quote Analysis](docs/images/quote-analysis.png)
+
+*Underwriting quote generation with premium calculations*
+
+</td>
+<td width="50%">
+
+**Agent Evaluations**
+
+![Agent Evaluations](docs/images/evals.png)
+
+*Azure AI Foundry evaluation scores for each agent in the workflow*
+
+</td>
+</tr>
+<tr>
+<td width="50%">
+
+**Agent Insights**
+
+![Agent Insights](docs/images/agent-insights.png)
+
+*Detailed agent transparency view showing inputs, outputs, and reasoning*
+
+</td>
+<td width="50%">
+
 **Admin Panel**
 
 ![Admin Panel](docs/images/admin-panel.png)
@@ -264,13 +293,18 @@ InsureAI delivers measurable business impact across insurance operations:
 *Prompt management and analyzer configuration*
 
 </td>
+</tr>
+<tr>
 <td width="50%">
 
-**Ask IQ Chat Interface**
+**Review & Access**
 
-![Ask IQ Chat](docs/images/ask-iq-chat.png)
+![Review & Access](docs/images/review-access.png)
 
-*Context-aware chat with policy and application knowledge*
+*Application review interface for underwriters*
+
+</td>
+<td width="50%">
 
 </td>
 </tr>
