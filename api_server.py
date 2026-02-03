@@ -47,8 +47,8 @@ logger = setup_logging()
 
 # Initialize FastAPI app
 app = FastAPI(
-    title="WorkbenchIQ API",
-    description="REST API for WorkbenchIQ - Multi-persona document processing workbench",
+    title="InsureAI API",
+    description="REST API for InsureAI - Multi-persona document processing workbench",
     version="0.3.0",
 )
 
@@ -489,7 +489,7 @@ Always wrap JSON responses in ```json code blocks.
 @app.get("/")
 async def root():
     """Health check endpoint."""
-    return {"status": "ok", "version": "0.3.0", "name": "WorkbenchIQ"}
+    return {"status": "ok", "version": "0.3.0", "name": "InsureAI"}
 
 
 # ============================================================================
@@ -1077,13 +1077,47 @@ async def run_application_risk_analysis_stream(app_id: str, use_demo: bool = Fal
                     logger.info("Attempting to persist agent run to Cosmos DB...")
                     try:
                         from app.cosmos import get_cosmos_service
+                        from app.cosmos.models import EvaluationDocument, EvaluationMetrics
                         
                         cosmos_service = await get_cosmos_service()
                         logger.debug(f"Cosmos service retrieved - is_available={cosmos_service.is_available}")
                         if cosmos_service.is_available:
+                            # Build agent step details with evaluations
+                            agent_step_details = []
+                            evaluations = orchestrator_output.evaluations or {}
+                            
+                            for record in orchestrator_output.execution_records:
+                                step_detail = {
+                                    "agent_id": record.agent_id,
+                                    "inputs": {},
+                                    "outputs": {},
+                                }
+                                
+                                # Add evaluation data if available
+                                agent_eval = evaluations.get(record.agent_id)
+                                if agent_eval:
+                                    metrics = agent_eval.get("metrics", [])
+                                    step_detail["evaluation_results"] = {
+                                        "groundedness": next((m.get("score") for m in metrics if m.get("metric_name") == "groundedness"), None),
+                                        "relevance": next((m.get("score") for m in metrics if m.get("metric_name") == "relevance"), None),
+                                        "coherence": next((m.get("score") for m in metrics if m.get("metric_name") == "coherence"), None),
+                                        "fluency": next((m.get("score") for m in metrics if m.get("metric_name") == "fluency"), None),
+                                        "custom_metrics": {
+                                            "completeness": next((m.get("score") for m in metrics if m.get("metric_name") == "completeness"), None),
+                                            "structure": next((m.get("score") for m in metrics if m.get("metric_name") == "structure"), None),
+                                            "response_length": next((m.get("score") for m in metrics if m.get("metric_name") == "response_length"), None),
+                                            "overall_score": agent_eval.get("aggregate_score"),
+                                            "passed": agent_eval.get("passed"),
+                                        }
+                                    }
+                                
+                                agent_step_details.append(step_detail)
+                            
+                            # Create and save agent run document
                             run_document = await cosmos_service.create_run_document_from_orchestrator_output(
                                 application_id=app_id,
                                 orchestrator_output=orchestrator_output,
+                                agent_step_details=agent_step_details,
                             )
                             logger.debug(f"Created run document: run_id={run_document.run_id}, id={run_document.id}")
                             save_result = await cosmos_service.save_agent_run(run_document)
@@ -1095,6 +1129,38 @@ async def run_application_risk_analysis_stream(app_id: str, use_demo: bool = Fal
                                 )
                             else:
                                 logger.warning("Failed to save agent run to Cosmos DB (save_result=False)")
+                            
+                            # Persist evaluations to dedicated evaluations container
+                            for agent_id, eval_data in evaluations.items():
+                                try:
+                                    metrics = eval_data.get("metrics", [])
+                                    eval_doc = EvaluationDocument(
+                                        execution_id=orchestrator_output.workflow_id,
+                                        application_id=app_id,
+                                        agent_id=agent_id,
+                                        step_number=next(
+                                            (i + 1 for i, r in enumerate(orchestrator_output.execution_records) 
+                                             if r.agent_id == agent_id), 1
+                                        ),
+                                        evaluation_type="quality",
+                                        metrics=EvaluationMetrics(
+                                            groundedness=next((m.get("score") / 5.0 for m in metrics if m.get("metric_name") == "groundedness"), None),
+                                            coherence=next((m.get("score") / 5.0 for m in metrics if m.get("metric_name") == "coherence"), None),
+                                        ),
+                                        custom_metrics={
+                                            "completeness": next((m.get("score") for m in metrics if m.get("metric_name") == "completeness"), None),
+                                            "structure": next((m.get("score") for m in metrics if m.get("metric_name") == "structure"), None),
+                                            "response_length": next((m.get("score") for m in metrics if m.get("metric_name") == "response_length"), None),
+                                            "reasons": {m.get("metric_name"): m.get("reason") for m in metrics if m.get("reason")},
+                                        },
+                                        overall_score=(eval_data.get("aggregate_score") or 0.0) / 5.0,
+                                        passed=eval_data.get("passed", False),
+                                        evaluation_duration_ms=eval_data.get("duration_ms"),
+                                    )
+                                    await cosmos_service.save_evaluation(eval_doc)
+                                except Exception as eval_err:
+                                    logger.debug(f"Failed to save evaluation for {agent_id}: {eval_err}")
+                            
                         else:
                             logger.info("Cosmos DB not available (is_available=False), skipping agent run persistence")
                     except Exception as cosmos_err:
@@ -1750,7 +1816,7 @@ async def _background_delete_policy_chunks(settings, policy_id: str):
         from app.rag.repository import PolicyChunkRepository
         
         logger.info("Deleting chunks for policy: %s", policy_id)
-        repo = PolicyChunkRepository(schema=settings.database.schema or "workbenchiq")
+        repo = PolicyChunkRepository(schema=settings.database.schema or "insureai")
         deleted = await repo.delete_chunks_by_policy(policy_id)
         logger.info("Deleted %d chunks for policy: %s", deleted, policy_id)
     except Exception as e:

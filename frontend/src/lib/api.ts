@@ -1,6 +1,6 @@
 /**
  * API client for communicating with the Python backend.
- * This module provides functions to interact with the WorkbenchIQ backend.
+ * This module provides functions to interact with the InsureAI backend.
  */
 
 import type {

@@ -1,6 +1,6 @@
 # Prompts and Policies Directory
 
-This directory contains the git-tracked configuration files for prompts and underwriting policies used by WorkbenchIQ.
+This directory contains the git-tracked configuration files for prompts and underwriting policies used by InsureAI.
 
 ## Files
 
@@ -25,7 +25,7 @@ The location of this directory can be configured via the `UW_APP_PROMPTS_ROOT` e
 
 ## Editing
 
-All files in this directory can be edited via the Admin panel in the WorkbenchIQ frontend:
+All files in this directory can be edited via the Admin panel in the InsureAI frontend:
 - **Prompt Catalog** tab: Edit prompts.json
 - **Underwriting Policies** tab: Edit life-health-underwriting-policies.json
 

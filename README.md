@@ -1,6 +1,6 @@
 <div align="center">
 
-# WorkbenchIQ
+# InsureAI
 
 ### AI-Powered Workbench for Insurance Underwriters, Claims Processors & End Users
 
@@ -9,7 +9,7 @@
 [![Azure AI Foundry](https://img.shields.io/badge/Azure-AI%20Foundry-0078D4.svg)](https://azure.microsoft.com/en-us/products/ai-studio/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-**WorkbenchIQ** is a Microsoft accelerator providing a modern AI-powered workbench for **underwriters**, **claims processors**, and **end users**, combining **Azure AI Content Understanding**, **Azure AI Foundry Multi-Agent Orchestration**, and **Azure AI Evaluation SDK** to streamline document-heavy insurance workflows with full transparency and auditability.
+**InsureAI** is a Microsoft accelerator providing a modern AI-powered workbench for **underwriters**, **claims processors**, and **end users**, combining **Azure AI Content Understanding**, **Azure AI Foundry Multi-Agent Orchestration**, and **Azure AI Evaluation SDK** to streamline document-heavy insurance workflows with full transparency and auditability.
 
 [Business Value](#business-value) | [Architecture](#architecture) | [Features](#features) | [Quick Start](#quick-start) | [Deployment](#deployment)
 
@@ -19,7 +19,7 @@
 
 ## Business Value
 
-WorkbenchIQ delivers measurable business impact across insurance operations:
+InsureAI delivers measurable business impact across insurance operations:
 
 ### For Insurance Carriers
 
@@ -43,7 +43,7 @@ WorkbenchIQ delivers measurable business impact across insurance operations:
 
 ## Architecture
 
-![WorkbenchIQ Architecture](docs/images/arch.png)
+![InsureAI Architecture](docs/images/arch.png)
 
 ### System Overview
 
@@ -329,8 +329,8 @@ WorkbenchIQ delivers measurable business impact across insurance operations:
 
 ```bash
 # Clone the repository
-git clone https://github.com/microsoft/workbenchiq.git
-cd workbenchiq
+git clone https://github.com/microsoft/insureai.git
+cd insureai
 
 # Install Python dependencies
 uv sync
@@ -357,7 +357,7 @@ AZURE_OPENAI_CHAT_DEPLOYMENT_NAME=gpt-4.1-mini
 # === STORAGE ===
 STORAGE_BACKEND=azure_blob
 AZURE_STORAGE_ACCOUNT_NAME=your-storage-account
-AZURE_STORAGE_CONTAINER_NAME=workbenchiq-data
+AZURE_STORAGE_CONTAINER_NAME=insureai-data
 
 # === COSMOS DB ===
 AZURE_COSMOS_ENDPOINT=https://your-cosmos.documents.azure.com:443/
@@ -403,26 +403,26 @@ cd frontend && npm run dev
    az login
    
    # Create resource group
-   az group create --name rg-workbenchiq-dev --location eastus2
+   az group create --name rg-insureai-dev --location eastus2
    
    # Create Azure OpenAI resource
    az cognitiveservices account create \
-     --name aoai-workbenchiq-dev \
-     --resource-group rg-workbenchiq-dev \
+     --name aoai-insureai-dev \
+     --resource-group rg-insureai-dev \
      --kind OpenAI \
      --sku S0 \
      --location eastus2
    
    # Create Cosmos DB account
    az cosmosdb create \
-     --name cosmos-workbenchiq-dev \
-     --resource-group rg-workbenchiq-dev \
+     --name cosmos-insureai-dev \
+     --resource-group rg-insureai-dev \
      --locations regionName=eastus2 failoverPriority=0
    
    # Create Storage Account
    az storage account create \
-     --name stworkbenchiqdev \
-     --resource-group rg-workbenchiq-dev \
+     --name stinsureaidev \
+     --resource-group rg-insureai-dev \
      --sku Standard_LRS
    ```
 
@@ -430,8 +430,8 @@ cd frontend && npm run dev
    ```bash
    # Deploy GPT-4.1
    az cognitiveservices account deployment create \
-     --name aoai-workbenchiq-dev \
-     --resource-group rg-workbenchiq-dev \
+     --name aoai-insureai-dev \
+     --resource-group rg-insureai-dev \
      --deployment-name gpt-4.1 \
      --model-name gpt-4.1 \
      --model-version "2024-04-01-preview" \
@@ -448,13 +448,13 @@ cd frontend && npm run dev
    ```bash
    # Create database and containers
    az cosmosdb sql database create \
-     --account-name cosmos-workbenchiq-dev \
-     --resource-group rg-workbenchiq-dev \
+     --account-name cosmos-insureai-dev \
+     --resource-group rg-insureai-dev \
      --name underwriting-agents
    
    az cosmosdb sql container create \
-     --account-name cosmos-workbenchiq-dev \
-     --resource-group rg-workbenchiq-dev \
+     --account-name cosmos-insureai-dev \
+     --resource-group rg-insureai-dev \
      --database-name underwriting-agents \
      --name underwriting_agent_runs \
      --partition-key-path /workflow_id
@@ -510,7 +510,7 @@ For production deployments, consider:
 ## Project Structure
 
 ```
-workbenchiq/
+insureai/
 ├── api_server.py                 # FastAPI backend entry point
 ├── app/
 │   ├── agents/                   # Multi-agent system

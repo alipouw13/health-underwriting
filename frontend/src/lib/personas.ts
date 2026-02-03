@@ -1,5 +1,5 @@
 /**
- * Persona definitions and types for WorkbenchIQ.
+ * Persona definitions and types for InsureAI.
  * This module defines the available personas and their UI configurations.
  */
 
@@ -114,4 +114,4 @@ export const DEFAULT_PERSONA: PersonaId = 'underwriting';
 /**
  * Local storage key for persisting selected persona
  */
-export const PERSONA_STORAGE_KEY = 'workbenchiq-persona';
+export const PERSONA_STORAGE_KEY = 'insureai-persona';

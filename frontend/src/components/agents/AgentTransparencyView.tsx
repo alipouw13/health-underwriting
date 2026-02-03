@@ -9,10 +9,12 @@ import {
   Cpu, 
   Eye,
   Layers,
+  BarChart3,
 } from 'lucide-react';
 import AgentExecutionPanel from './AgentExecutionPanel';
 import OrchestrationTimeline, { OrchestrationTimelineCompact } from './OrchestrationTimeline';
 import FinalDecisionSummary, { FinalDecisionCompact } from './FinalDecisionSummary';
+import EvaluationsPanel from './EvaluationCard';
 import CollapsibleSection from '@/components/CollapsibleSection';
 import type { OrchestratorOutput } from '@/lib/agentTypes';
 
@@ -137,6 +139,21 @@ export default function AgentTransparencyView({
           </div>
         </div>
       </CollapsibleSection>
+
+      {/* AI Evaluations - Only show if evaluations are present */}
+      {orchestratorOutput.evaluations && Object.keys(orchestratorOutput.evaluations).length > 0 && (
+        <CollapsibleSection
+          title="AI Foundry Evaluations"
+          icon={<BarChart3 className="w-4 h-4" />}
+          defaultOpen={defaultExpanded}
+          accentColor="purple"
+        >
+          <EvaluationsPanel
+            evaluations={orchestratorOutput.evaluations}
+            workflowEvaluation={orchestratorOutput.workflow_evaluation}
+          />
+        </CollapsibleSection>
+      )}
 
       {/* Workflow Metadata */}
       <div className="text-xs text-slate-400 text-center py-2 border-t border-slate-100">

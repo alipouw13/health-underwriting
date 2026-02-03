@@ -142,6 +142,42 @@ export interface FinalDecision {
 // ORCHESTRATOR OUTPUT (main type consumed by UI)
 // =============================================================================
 
+export interface MetricScore {
+  metric_name: string;
+  score: number;
+  threshold: number;
+  passed: boolean;
+  reason?: string;
+}
+
+export interface AgentEvaluationResult {
+  agent_id: string;
+  evaluation_id: string;
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
+  started_at?: string;
+  completed_at?: string;
+  duration_ms?: number;
+  metrics: MetricScore[];
+  aggregate_score?: number;
+  overall_score?: number;  // Alias for aggregate_score from backend
+  passed?: boolean;
+  error_message?: string;
+}
+
+export interface WorkflowEvaluationResult {
+  workflow_id: string;
+  evaluation_id: string;
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
+  agent_evaluations: Record<string, AgentEvaluationResult>;
+  aggregate_score?: number;
+  overall_score?: number;  // Alias for aggregate_score from backend
+  overall_passed?: boolean;
+  started_at?: string;
+  completed_at?: string;
+  total_duration_ms?: number;
+  errors: string[];
+}
+
 export interface OrchestratorOutput {
   agent_id: string;
   success: boolean;
@@ -154,6 +190,8 @@ export interface OrchestratorOutput {
   execution_records: AgentExecutionRecord[];
   workflow_id: string;
   total_execution_time_ms: number;
+  evaluations?: Record<string, AgentEvaluationResult>;
+  workflow_evaluation?: WorkflowEvaluationResult;
 }
 
 // =============================================================================

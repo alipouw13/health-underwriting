@@ -2374,7 +2374,7 @@ export default function AdminPage() {
               >
                 <span className="text-white font-bold text-xs">W.IQ</span>
               </div>
-              <span className="font-semibold text-lg text-slate-900">WorkbenchIQ</span>
+              <span className="font-semibold text-lg text-slate-900">InsureAI</span>
             </Link>
             <span className="text-slate-300">|</span>
             <h1 className="text-xl font-semibold text-slate-700">

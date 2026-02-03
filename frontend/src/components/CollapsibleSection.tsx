@@ -11,7 +11,7 @@ interface CollapsibleSectionProps {
   defaultOpen?: boolean;
   className?: string;
   headerClassName?: string;
-  accentColor?: 'indigo' | 'slate' | 'blue' | 'emerald';
+  accentColor?: 'indigo' | 'slate' | 'blue' | 'emerald' | 'purple';
 }
 
 export default function CollapsibleSection({
@@ -49,6 +49,12 @@ export default function CollapsibleSection({
       bg: 'bg-emerald-50',
       text: 'text-emerald-900',
       icon: 'text-emerald-600'
+    },
+    purple: {
+      border: 'border-purple-200',
+      bg: 'bg-purple-50',
+      text: 'text-purple-900',
+      icon: 'text-purple-600'
     }
   };
 

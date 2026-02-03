@@ -62,14 +62,14 @@ class FoundryAgentInvoker:
     5. Continue polling until completed
     6. Retrieve response messages
     
-    API Pattern (Azure AI Projects SDK):
-    - client.agents.threads.create() - create thread
-    - client.agents.messages.create() - add message to thread  
-    - client.agents.runs.create() - start run (NOT create_and_process for tool handling)
-    - client.agents.runs.get() - poll run status
-    - client.agents.runs.submit_tool_outputs() - submit tool results
-    - client.agents.messages.list() - get response messages
-    - client.agents.threads.delete() - cleanup
+    API Pattern (Azure AI Agents SDK 1.x):
+    - client.threads.create() - create thread
+    - client.messages.create() - add message to thread  
+    - client.runs.create() - start run (NOT create_and_process for tool handling)
+    - client.runs.get() - poll run status
+    - client.runs.submit_tool_outputs() - submit tool results
+    - client.messages.list() - get response messages
+    - client.threads.delete() - cleanup
     """
     
     # Maximum time to wait for a run to complete (10 minutes per Foundry docs)
@@ -100,24 +100,27 @@ class FoundryAgentInvoker:
             self._get_tools_for_agent = None
     
     def _get_client(self):
-        """Get or create the Azure AI Projects client (SYNC version)."""
+        """Get or create the Azure AI Agents client (SYNC version).
+        
+        Note: As of azure-ai-projects 2.0.0, agent functionality moved to azure-ai-agents package.
+        """
         if self._client is not None:
             return self._client
         
         if not self.project_endpoint:
             raise RuntimeError("AZURE_AI_PROJECT_ENDPOINT not configured")
         
-        # Use SYNC client - the SDK methods are synchronous
-        from azure.ai.projects import AIProjectClient
+        # Use SYNC client from azure-ai-agents (moved from azure-ai-projects in SDK 2.0)
+        from azure.ai.agents import AgentsClient
         from azure.identity import DefaultAzureCredential
         
         self._credential = DefaultAzureCredential()
-        self._client = AIProjectClient(
+        self._client = AgentsClient(
             endpoint=self.project_endpoint,
             credential=self._credential,
         )
         
-        self.logger.info("Initialized AIProjectClient for endpoint: %s", self.project_endpoint)
+        self.logger.info("Initialized AgentsClient for endpoint: %s", self.project_endpoint)
         return self._client
     
     def _find_agent_by_name(self, agent_name: str) -> Optional[str]:
@@ -128,7 +131,8 @@ class FoundryAgentInvoker:
         client = self._get_client()
         
         # Search for the agent (sync iteration)
-        for agent in client.agents.list_agents():
+        # Note: azure-ai-agents 1.x uses direct methods on AgentsClient
+        for agent in client.list_agents():
             if agent.name == agent_name:
                 self._agent_cache[agent_name] = agent.id
                 return agent.id
@@ -169,8 +173,8 @@ class FoundryAgentInvoker:
             client = self._get_client()
             
             # Validate client
-            if not client or not hasattr(client, 'agents'):
-                raise RuntimeError("Invalid AIProjectClient - agents attribute missing")
+            if not client or not hasattr(client, 'threads'):
+                raise RuntimeError("Invalid AgentsClient - threads attribute missing")
             
             # Find the agent (sync)
             agent_id = self._find_agent_by_name(agent_name)
@@ -196,12 +200,12 @@ class FoundryAgentInvoker:
             
             # Step 1: Create thread
             self.logger.info("Creating thread...")
-            thread = client.agents.threads.create()
+            thread = client.threads.create()
             self.logger.info("Created thread: %s", thread.id)
             
             # Step 2: Add message to thread
             self.logger.info("Creating message...")
-            client.agents.messages.create(
+            client.messages.create(
                 thread_id=thread.id,
                 role="user",
                 content=full_prompt,
@@ -209,7 +213,7 @@ class FoundryAgentInvoker:
             
             # Step 3: Start run (use create() not create_and_process() to handle tools)
             self.logger.info("Starting run for agent %s on thread %s...", agent_id, thread.id)
-            run = client.agents.runs.create(
+            run = client.runs.create(
                 thread_id=thread.id,
                 agent_id=agent_id,
             )
@@ -229,7 +233,7 @@ class FoundryAgentInvoker:
                 total_wait_time += poll_interval
                 
                 # Get updated run status
-                run = client.agents.runs.get(thread_id=thread.id, run_id=run.id)
+                run = client.runs.get(thread_id=thread.id, run_id=run.id)
                 self.logger.debug("Run status: %s (waited %.1fs)", run.status, total_wait_time)
                 
                 # Handle requires_action - agent wants to call function tools
@@ -242,7 +246,7 @@ class FoundryAgentInvoker:
                     if tool_outputs:
                         # Submit tool outputs back to the run
                         self.logger.info("Submitting %d tool outputs", len(tool_outputs))
-                        run = client.agents.runs.submit_tool_outputs(
+                        run = client.runs.submit_tool_outputs(
                             thread_id=thread.id,
                             run_id=run.id,
                             tool_outputs=tool_outputs,
@@ -278,7 +282,7 @@ class FoundryAgentInvoker:
                 )
             
             # Step 5: Get response messages
-            messages = client.agents.messages.list(thread_id=thread.id)
+            messages = client.messages.list(thread_id=thread.id)
             
             response_text = ""
             for msg in messages:
@@ -445,7 +449,7 @@ class FoundryAgentInvoker:
     def _cleanup_thread(self, client, thread_id: str):
         """Clean up a thread after use."""
         try:
-            client.agents.threads.delete(thread_id=thread_id)
+            client.threads.delete(thread_id=thread_id)
         except Exception as del_err:
             self.logger.warning("Failed to delete thread %s: %s", thread_id, del_err)
     

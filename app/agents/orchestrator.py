@@ -76,6 +76,9 @@ class AgentProgressStage(str, Enum):
     VALIDATING_OUTPUT = "validating_output"
     COMPLETED = "completed"
     FAILED = "failed"
+    # Evaluation stages
+    EVALUATING = "evaluating"
+    EVALUATION_COMPLETE = "evaluation_complete"
 
 
 @dataclass
@@ -166,6 +169,15 @@ from app.agents.policy_risk import PolicyRiskAgent, PolicyRiskOutput
 from app.agents.bias_fairness import BiasAndFairnessOutput
 from app.agents.audit_trace import AuditAndTraceOutput, AgentOutputRecord
 
+# Import Foundry Evaluations integration
+from app.agents.evaluations import (
+    get_evaluator_service,
+    is_evaluations_enabled,
+    AgentEvaluationResult,
+    WorkflowEvaluationResult,
+    EvaluationStatus,
+)
+
 
 # =============================================================================
 # INPUT/OUTPUT SCHEMAS
@@ -229,6 +241,10 @@ class OrchestratorOutput(AgentOutput):
     workflow_id: str = Field(default_factory=lambda: str(uuid4()), description="Workflow execution ID")
     total_execution_time_ms: float = Field(..., description="Total orchestration time")
     execution_source: str = Field(default="underwriter", description="Source: 'underwriter' or 'end_user'")
+    
+    # Foundry Evaluations (STEP 6: Added for UI display)
+    evaluations: Optional[Dict[str, Any]] = Field(default=None, description="Agent and workflow evaluation results")
+    workflow_evaluation: Optional[Dict[str, Any]] = Field(default=None, description="Aggregate workflow evaluation")
 
 
 # =============================================================================
@@ -241,6 +257,11 @@ class ExecutionContext:
     
     Stores outputs from each agent for use by subsequent agents.
     This is the ONLY mechanism for passing data between agents.
+    
+    EVALUATION INTEGRATION (STEP 4):
+    - Tracks evaluation results for each agent
+    - Stores workflow-level evaluation results
+    - Evaluations run AFTER agent execution (non-blocking)
     """
     
     def __init__(self, patient_id: str, workflow_id: str):
@@ -255,6 +276,10 @@ class ExecutionContext:
         self.application_data: Optional[Dict[str, Any]] = None
         self.document_markdown: Optional[str] = None
         self.llm_outputs: Optional[Dict[str, Any]] = None
+        
+        # Foundry Evaluations (STEP 4 integration)
+        self._evaluations: Dict[str, AgentEvaluationResult] = {}
+        self._workflow_evaluation: Optional[WorkflowEvaluationResult] = None
     
     def store_output(
         self, 
@@ -286,6 +311,30 @@ class ExecutionContext:
         self._records.append(record)
         
         self.logger.info(f"Step {step_number}: {agent_id} completed in {output.execution_time_ms:.2f}ms")
+    
+    def store_evaluation(self, agent_id: str, evaluation: AgentEvaluationResult) -> None:
+        """Store evaluation result for an agent."""
+        self._evaluations[agent_id] = evaluation
+        self.logger.info(
+            f"Evaluation stored for {agent_id}: status={evaluation.status.value}, "
+            f"score={evaluation.aggregate_score or 'N/A'}"
+        )
+    
+    def get_evaluation(self, agent_id: str) -> Optional[AgentEvaluationResult]:
+        """Get evaluation result for an agent."""
+        return self._evaluations.get(agent_id)
+    
+    def get_all_evaluations(self) -> Dict[str, AgentEvaluationResult]:
+        """Get all agent evaluations."""
+        return self._evaluations.copy()
+    
+    def set_workflow_evaluation(self, evaluation: WorkflowEvaluationResult) -> None:
+        """Set the workflow-level evaluation result."""
+        self._workflow_evaluation = evaluation
+    
+    def get_workflow_evaluation(self) -> Optional[WorkflowEvaluationResult]:
+        """Get workflow-level evaluation result."""
+        return self._workflow_evaluation
     
     def get_output(self, agent_id: str) -> Optional[AgentOutput]:
         """Get a stored agent output."""
@@ -557,16 +606,85 @@ class OrchestratorAgent:
         
         policy_rules = validated_input.policy_rules or get_standard_policy_rules()
         
+        # Get evaluator service (STEP 4 integration)
+        evaluator = get_evaluator_service()
+        
         try:
             # STEP 1: HealthDataAnalysisAgent (MANDATORY)
-            await self._execute_health_data_analysis(context, health_metrics, patient_profile)
+            health_output = await self._execute_health_data_analysis(context, health_metrics, patient_profile)
+            
+            # EVALUATION: Run after agent completes (non-blocking)
+            if is_evaluations_enabled():
+                try:
+                    health_eval = await evaluator.evaluate_agent(
+                        agent_id="HealthDataAnalysisAgent",
+                        agent_input={
+                            "document_context": self._build_document_context(context),
+                            "health_metrics": health_metrics.model_dump() if health_metrics else {},
+                        },
+                        agent_output={
+                            "health_summary": health_output.summary if hasattr(health_output, 'summary') else str(health_output),
+                            "risk_indicators": [r.model_dump() for r in health_output.risk_indicators] if hasattr(health_output, 'risk_indicators') else [],
+                        },
+                        context=self._build_document_context(context),
+                    )
+                    context.store_evaluation("HealthDataAnalysisAgent", health_eval)
+                except Exception as e:
+                    self.logger.warning(f"Evaluation failed for HealthDataAnalysisAgent: {e}")
             
             # STEP 2: BusinessRulesValidationAgent (MANDATORY) 
             # Now receives health analysis directly and handles risk + rules
-            await self._execute_business_rules_validation(context, patient_profile)
+            business_output = await self._execute_business_rules_validation(context, patient_profile)
+            
+            # EVALUATION: Run after agent completes (non-blocking)
+            if is_evaluations_enabled():
+                try:
+                    business_eval = await evaluator.evaluate_agent(
+                        agent_id="BusinessRulesValidationAgent",
+                        agent_input={
+                            "rules_context": str(policy_rules.model_dump() if hasattr(policy_rules, 'model_dump') else policy_rules),
+                            "policy_rules": str(policy_rules.model_dump() if hasattr(policy_rules, 'model_dump') else policy_rules),
+                        },
+                        agent_output={
+                            "rationale": business_output.rationale if hasattr(business_output, 'rationale') else str(business_output),
+                            "approved": business_output.approved if hasattr(business_output, 'approved') else None,
+                        },
+                        context=str(policy_rules.model_dump() if hasattr(policy_rules, 'model_dump') else policy_rules),
+                    )
+                    context.store_evaluation("BusinessRulesValidationAgent", business_eval)
+                except Exception as e:
+                    self.logger.warning(f"Evaluation failed for BusinessRulesValidationAgent: {e}")
             
             # STEP 3: CommunicationAgent (MANDATORY)
-            await self._execute_communication(context, patient_profile)
+            comm_output = await self._execute_communication(context, patient_profile)
+            
+            # EVALUATION: Run after agent completes (non-blocking)
+            if is_evaluations_enabled():
+                try:
+                    comm_eval = await evaluator.evaluate_agent(
+                        agent_id="CommunicationAgent",
+                        agent_input={
+                            "decision_summary": self._build_decision_summary(context),
+                        },
+                        agent_output={
+                            "underwriter_message": comm_output.underwriter_message if hasattr(comm_output, 'underwriter_message') else str(comm_output),
+                            "customer_message": comm_output.customer_message if hasattr(comm_output, 'customer_message') else "",
+                        },
+                    )
+                    context.store_evaluation("CommunicationAgent", comm_eval)
+                except Exception as e:
+                    self.logger.warning(f"Evaluation failed for CommunicationAgent: {e}")
+            
+            # WORKFLOW-LEVEL EVALUATION: Aggregate all agent evaluations
+            if is_evaluations_enabled():
+                try:
+                    workflow_eval = await evaluator.evaluate_workflow(
+                        workflow_id=workflow_id,
+                        agent_results=context.get_all_evaluations(),
+                    )
+                    context.set_workflow_evaluation(workflow_eval)
+                except Exception as e:
+                    self.logger.warning(f"Workflow evaluation failed: {e}")
             
         except AgentExecutionError as e:
             self.logger.error(f"Agent execution failed: {e}")
@@ -602,6 +720,23 @@ class OrchestratorAgent:
                 execution_source = "end_user"
                 self.logger.info("END USER AGENT EXECUTION STARTED")
         
+        # Build evaluations output (STEP 6)
+        evaluations_output = None
+        workflow_evaluation_output = None
+        if is_evaluations_enabled():
+            # Convert agent evaluations to dict format for JSON serialization
+            agent_evals = context.get_all_evaluations()
+            if agent_evals:
+                evaluations_output = {
+                    agent_id: eval_result.model_dump() 
+                    for agent_id, eval_result in agent_evals.items()
+                }
+            
+            # Get workflow evaluation
+            workflow_eval = context.get_workflow_evaluation()
+            if workflow_eval:
+                workflow_evaluation_output = workflow_eval.model_dump()
+        
         # Build output
         output = OrchestratorOutput(
             agent_id=self.agent_id,
@@ -613,11 +748,17 @@ class OrchestratorAgent:
             workflow_id=workflow_id,
             total_execution_time_ms=context.get_total_time_ms(),
             execution_source=execution_source,
+            evaluations=evaluations_output,
+            workflow_evaluation=workflow_evaluation_output,
         )
         
         # Log completion with source
         if execution_source == "end_user":
             self.logger.info("END USER AGENT EXECUTION COMPLETED")
+        
+        # Log evaluation status
+        if evaluations_output:
+            self.logger.info(f"Workflow {workflow_id} evaluations: {len(evaluations_output)} agents evaluated")
         
         self.logger.info(f"Workflow {workflow_id} completed in {output.total_execution_time_ms:.2f}ms (source={execution_source})")
         return output
@@ -828,6 +969,74 @@ class OrchestratorAgent:
                         tools_used=tools,
                     )
                     
+                    # STEP 4: Run Foundry evaluations for this agent (streaming version)
+                    if is_evaluations_enabled():
+                        evaluator = get_evaluator_service()
+                        if evaluator:
+                            # Emit "evaluating" progress event
+                            self.logger.info(f"AGENT_PROGRESS_EVENT_EMITTED: {agent_id} → EVALUATING")
+                            yield AgentProgress(
+                                workflow_id=workflow_id,
+                                agent_id=agent_id,
+                                agent_name=agent_name,
+                                step_number=step_number,
+                                total_steps=total_steps,
+                                status=AgentProgressStatus.PROCESSING,
+                                stage=AgentProgressStage.EVALUATING,
+                                execution_time_ms=execution_time_ms,
+                                message=f"Evaluating {agent_name} with Azure AI Foundry",
+                                safe_summary=f"Running quality evaluations (groundedness, coherence)",
+                            )
+                            
+                            try:
+                                eval_start = datetime.now(timezone.utc)
+                                agent_input = self._build_agent_input_for_eval(agent_id, context, health_metrics, patient_profile, policy_rules)
+                                agent_output_dict = self._build_agent_output_for_eval(agent_id, context)
+                                doc_context = self._build_document_context(context)
+                                
+                                agent_eval = await evaluator.evaluate_agent(
+                                    agent_id=agent_id,
+                                    agent_input=agent_input,
+                                    agent_output=agent_output_dict,
+                                    context=doc_context,
+                                )
+                                context.store_evaluation(agent_id, agent_eval)
+                                eval_time_ms = (datetime.now(timezone.utc) - eval_start).total_seconds() * 1000
+                                
+                                # Emit "evaluation complete" progress event
+                                eval_status = agent_eval.status.value if agent_eval.status else "completed"
+                                eval_score = agent_eval.overall_score
+                                self.logger.info(f"AGENT_PROGRESS_EVENT_EMITTED: {agent_id} → EVALUATION_COMPLETE (score={eval_score:.2f})")
+                                yield AgentProgress(
+                                    workflow_id=workflow_id,
+                                    agent_id=agent_id,
+                                    agent_name=agent_name,
+                                    step_number=step_number,
+                                    total_steps=total_steps,
+                                    status=AgentProgressStatus.COMPLETED,
+                                    stage=AgentProgressStage.EVALUATION_COMPLETE,
+                                    execution_time_ms=execution_time_ms + eval_time_ms,
+                                    message=f"Evaluation complete for {agent_name}",
+                                    safe_summary=f"Quality score: {eval_score:.1f}/5.0 ({eval_status})",
+                                    output_preview=f"Metrics: {', '.join(m.metric_name for m in agent_eval.metrics)}" if agent_eval.metrics else None,
+                                )
+                                
+                            except Exception as e:
+                                self.logger.warning(f"Evaluation failed for {agent_id}: {e}")
+                                # Emit evaluation failed event (non-blocking)
+                                yield AgentProgress(
+                                    workflow_id=workflow_id,
+                                    agent_id=agent_id,
+                                    agent_name=agent_name,
+                                    step_number=step_number,
+                                    total_steps=total_steps,
+                                    status=AgentProgressStatus.COMPLETED,
+                                    stage=AgentProgressStage.EVALUATION_COMPLETE,
+                                    execution_time_ms=execution_time_ms,
+                                    message=f"Evaluation skipped for {agent_name}",
+                                    safe_summary=f"Evaluation could not complete: {str(e)[:50]}",
+                                )
+                    
                 except AgentExecutionError as e:
                     execution_time_ms = (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
                     
@@ -873,6 +1082,42 @@ class OrchestratorAgent:
                 execution_source = "end_user"
                 self.logger.info("END USER AGENT EXECUTION COMPLETED")
         
+        # Gather evaluations if enabled (STEP 4: Streaming version)
+        evaluations_output = None
+        workflow_evaluation_output = None
+        if is_evaluations_enabled():
+            # First, run workflow-level evaluation
+            evaluator = get_evaluator_service()
+            if evaluator:
+                try:
+                    workflow_eval = await evaluator.evaluate_workflow(
+                        workflow_id=workflow_id,
+                        agent_results=context.get_all_evaluations(),
+                        final_decision={
+                            "patient_id": validated_input.patient_id,
+                            "patient_name": patient_name,
+                            "decision": final_decision.status.value,
+                            "confidence": confidence_score,
+                        },
+                    )
+                    context.set_workflow_evaluation(workflow_eval)
+                    self.logger.info(f"Workflow evaluation completed: overall_score={workflow_eval.overall_score:.2f}")
+                except Exception as e:
+                    self.logger.warning(f"Workflow evaluation failed: {e}")
+            
+            # Now gather all evaluations
+            all_evals = context.get_all_evaluations()
+            if all_evals:
+                evaluations_output = {
+                    agent_id: eval_result.model_dump()
+                    for agent_id, eval_result in all_evals.items()
+                }
+            
+            # Get workflow evaluation
+            workflow_eval = context.get_workflow_evaluation()
+            if workflow_eval:
+                workflow_evaluation_output = workflow_eval.model_dump()
+        
         output = OrchestratorOutput(
             agent_id=self.agent_id,
             success=True,
@@ -883,7 +1128,13 @@ class OrchestratorAgent:
             workflow_id=workflow_id,
             total_execution_time_ms=context.get_total_time_ms(),
             execution_source=execution_source,
+            evaluations=evaluations_output,
+            workflow_evaluation=workflow_evaluation_output,
         )
+        
+        # Log evaluation status
+        if evaluations_output:
+            self.logger.info(f"Workflow {workflow_id} evaluations: {len(evaluations_output)} agents evaluated")
         
         self.logger.info(f"Workflow {workflow_id} completed in {output.total_execution_time_ms:.2f}ms (source={execution_source})")
         
@@ -2026,6 +2277,177 @@ Return JSON:
         
         context.store_output("AuditAndTraceAgent", output, step_number=7)
         return output
+    
+    # =========================================================================
+    # EVALUATION HELPER METHODS
+    # =========================================================================
+    
+    def _build_document_context(self, context: ExecutionContext) -> str:
+        """
+        Build document context string for evaluation grounding.
+        
+        Returns the document markdown or a summary of llm_outputs 
+        to serve as the grounding context for evaluation.
+        """
+        if context.document_markdown:
+            return context.document_markdown[:5000]  # Truncate for evaluation
+        
+        if context.llm_outputs:
+            # Summarize key information from LLM outputs
+            summary_parts = []
+            if "patient_summary" in context.llm_outputs:
+                summary_parts.append(f"Patient Summary: {context.llm_outputs['patient_summary']}")
+            if "application_summary" in context.llm_outputs:
+                summary_parts.append(f"Application: {context.llm_outputs['application_summary']}")
+            if summary_parts:
+                return " | ".join(summary_parts)[:5000]
+        
+        if context.application_data:
+            import json
+            return json.dumps(context.application_data)[:5000]
+        
+        return "No document context available"
+    
+    def _build_decision_summary(self, context: ExecutionContext) -> str:
+        """
+        Build decision summary for communication agent evaluation.
+        
+        Summarizes the business rules outcome that the communication 
+        agent was asked to communicate.
+        """
+        brv_output = context.get_output("BusinessRulesValidationAgent")
+        health_output = context.get_output("HealthDataAnalysisAgent")
+        
+        summary_parts = []
+        
+        if brv_output:
+            if hasattr(brv_output, 'approved'):
+                summary_parts.append(f"Approved: {brv_output.approved}")
+            if hasattr(brv_output, 'rationale'):
+                summary_parts.append(f"Rationale: {brv_output.rationale}")
+        
+        if health_output:
+            if hasattr(health_output, 'risk_indicators'):
+                risk_count = len(health_output.risk_indicators) if health_output.risk_indicators else 0
+                summary_parts.append(f"Risk indicators identified: {risk_count}")
+        
+        return " | ".join(summary_parts) if summary_parts else "Decision pending"
+    
+    def _build_agent_input_for_eval(
+        self, 
+        agent_id: str, 
+        context: ExecutionContext,
+        health_metrics: Any,
+        patient_profile: Any,
+        policy_rules: Any,
+    ) -> Dict[str, Any]:
+        """
+        Build agent input dictionary for evaluation.
+        
+        Creates a structured representation of the input provided to each agent
+        for use in Foundry evaluation metrics.
+        
+        NOTE: Uses safe serialization to handle datetime objects.
+        """
+        def safe_dump(obj) -> Any:
+            """Safely convert an object to a JSON-serializable dict."""
+            if obj is None:
+                return None
+            if hasattr(obj, 'model_dump'):
+                try:
+                    data = obj.model_dump()
+                    # Convert datetime objects in the dict
+                    return _sanitize_for_json(data)
+                except Exception:
+                    return str(obj)
+            return str(obj)
+        
+        def _sanitize_for_json(obj: Any) -> Any:
+            """Recursively sanitize an object for JSON serialization."""
+            from datetime import datetime, date
+            if isinstance(obj, (datetime, date)):
+                return obj.isoformat()
+            elif isinstance(obj, dict):
+                return {k: _sanitize_for_json(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [_sanitize_for_json(item) for item in obj]
+            elif hasattr(obj, 'model_dump'):
+                return _sanitize_for_json(obj.model_dump())
+            return obj
+        
+        if agent_id == "HealthDataAnalysisAgent":
+            return {
+                "health_metrics": safe_dump(health_metrics),
+                "patient_profile": safe_dump(patient_profile),
+            }
+        
+        elif agent_id == "PolicyRiskAgent":
+            health_output = context.get_output("HealthDataAnalysisAgent")
+            # Handle PolicyRuleSet or list of rules
+            policy_rules_data = []
+            if hasattr(policy_rules, 'rules'):
+                # PolicyRuleSet object
+                policy_rules_data = [_sanitize_for_json(r.model_dump()) if hasattr(r, 'model_dump') else str(r) for r in policy_rules.rules[:5]]
+            elif isinstance(policy_rules, list):
+                policy_rules_data = [_sanitize_for_json(r.model_dump()) if hasattr(r, 'model_dump') else str(r) for r in policy_rules[:5]]
+            else:
+                policy_rules_data = str(policy_rules)[:500]
+            return {
+                "health_analysis": safe_dump(health_output),
+                "policy_rules": policy_rules_data,
+            }
+        
+        elif agent_id == "BusinessRulesValidationAgent":
+            health_output = context.get_output("HealthDataAnalysisAgent")
+            return {
+                "health_analysis": safe_dump(health_output),
+                "patient_profile": safe_dump(patient_profile),
+            }
+        
+        elif agent_id == "CommunicationAgent":
+            brv_output = context.get_output("BusinessRulesValidationAgent")
+            return {
+                "business_decision": safe_dump(brv_output),
+                "decision_summary": self._build_decision_summary(context),
+            }
+        
+        return {"agent_id": agent_id}
+    
+    def _build_agent_output_for_eval(
+        self, 
+        agent_id: str, 
+        context: ExecutionContext,
+    ) -> Dict[str, Any]:
+        """
+        Build agent output dictionary for evaluation.
+        
+        Creates a structured representation of the output from each agent
+        for use in Foundry evaluation metrics.
+        
+        NOTE: Uses safe serialization to handle datetime objects.
+        """
+        from datetime import datetime, date
+        
+        def _sanitize_for_json(obj: Any) -> Any:
+            """Recursively sanitize an object for JSON serialization."""
+            if isinstance(obj, (datetime, date)):
+                return obj.isoformat()
+            elif isinstance(obj, dict):
+                return {k: _sanitize_for_json(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [_sanitize_for_json(item) for item in obj]
+            elif hasattr(obj, 'model_dump'):
+                return _sanitize_for_json(obj.model_dump())
+            return obj
+        
+        output = context.get_output(agent_id)
+        if not output:
+            return {"agent_id": agent_id, "status": "no_output"}
+        
+        if hasattr(output, 'model_dump'):
+            return _sanitize_for_json(output.model_dump())
+        
+        return {"agent_id": agent_id, "output": str(output)}
     
     # =========================================================================
     # FINAL DECISION PRODUCTION (SUMMARIZE ONLY - NO ALTERATIONS)

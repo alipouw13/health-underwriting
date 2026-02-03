@@ -83,7 +83,10 @@ class FoundryService:
             self.logger.error(f"Failed to load agent definitions: {e}")
     
     async def get_client(self):
-        """Get or create the Azure AI Projects client."""
+        """Get or create the Azure AI Agents client.
+        
+        Note: As of azure-ai-projects 2.0.0, agent functionality moved to azure-ai-agents package.
+        """
         if self._client is not None:
             return self._client
         
@@ -92,21 +95,22 @@ class FoundryService:
             return None
         
         try:
-            from azure.ai.projects.aio import AIProjectClient
+            # Agent APIs moved from azure.ai.projects to azure.ai.agents in SDK 2.0
+            from azure.ai.agents.aio import AgentsClient
             from azure.identity.aio import DefaultAzureCredential
             
             credential = DefaultAzureCredential()
-            self._client = AIProjectClient(
+            self._client = AgentsClient(
                 endpoint=self.project_endpoint,
                 credential=credential,
             )
-            self.logger.info(f"Connected to Azure AI Foundry at {self.project_endpoint}")
+            self.logger.info(f"Connected to Azure AI Foundry Agents at {self.project_endpoint}")
             return self._client
         except ImportError:
-            self.logger.warning("azure-ai-projects not installed - Foundry integration disabled")
+            self.logger.warning("azure-ai-agents not installed - Foundry integration disabled")
             return None
         except Exception as e:
-            self.logger.error(f"Failed to create Foundry client: {e}")
+            self.logger.error(f"Failed to create Foundry Agents client: {e}")
             return None
     
     async def check_agents_deployed(self) -> Dict[str, AgentDeploymentStatus]:
@@ -130,8 +134,9 @@ class FoundryService:
         
         try:
             # List existing agents in Foundry
+            # Note: azure-ai-agents 1.x uses direct methods on AgentsClient
             existing_agents = {}
-            async for agent in client.agents.list_agents():
+            async for agent in client.list_agents():
                 existing_agents[agent.name] = agent.id
             
             self.logger.info(f"Found {len(existing_agents)} agents in Azure AI Foundry")
@@ -203,7 +208,8 @@ class FoundryService:
             instructions = self._build_agent_instructions(agent_def)
             
             # Create the agent in Foundry
-            agent = await client.agents.create_agent(
+            # Note: azure-ai-agents 1.x uses direct methods on AgentsClient
+            agent = await client.create_agent(
                 model=model_deployment,
                 name=foundry_name,
                 instructions=instructions,

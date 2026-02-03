@@ -1,5 +1,5 @@
 """
-Persona definitions and configurations for WorkbenchIQ.
+Persona definitions and configurations for InsureAI.
 
 This module defines different industry personas (Underwriting, Claims, Mortgage)
 with their specific field schemas, prompts, and analyzer configurations.
@@ -13,7 +13,7 @@ from typing import Dict, List, Optional, Any
 
 
 class PersonaType(str, Enum):
-    """Available persona types in WorkbenchIQ."""
+    """Available persona types in InsureAI."""
     UNDERWRITING = "underwriting"
     LIFE_HEALTH_CLAIMS = "life_health_claims"
     AUTOMOTIVE_CLAIMS = "automotive_claims"  # New multimodal automotive claims persona
