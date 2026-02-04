@@ -1413,20 +1413,38 @@ class OrchestratorAgent:
         self.logger.info("Step 1: Executing HealthDataAnalysisAgent%s", 
                         " (via Azure AI Foundry)" if self._use_foundry else " (local)")
         
+        # Extract biometrics for explicit passing to tools
+        age = patient_profile.demographics.age
+        height_cm = patient_profile.medical_history.height_cm or 170.0
+        weight_kg = patient_profile.medical_history.weight_kg or 70.0
+        
+        self.logger.info(f"Health analysis inputs - age: {age}, height_cm: {height_cm}, weight_kg: {weight_kg}")
+        
         input_data = {
             "health_metrics": health_metrics.model_dump(),
             "patient_profile": patient_profile.model_dump(),
+            # Explicit biometrics for tool calls
+            "biometrics": {
+                "age": age,
+                "height_cm": height_cm,
+                "weight_kg": weight_kg,
+            }
         }
         
         tools_used = []
         
         if self._use_foundry:
             # Use Azure AI Foundry agent with function tools
-            prompt = """Analyze the provided health metrics and patient profile to identify risk indicators.
+            prompt = f"""Analyze the provided health metrics and patient profile to identify risk indicators.
+
+IMPORTANT BIOMETRIC DATA (use these exact values for tool calls):
+- age: {age}
+- height_cm: {height_cm}
+- weight_kg: {weight_kg}
 
 Use your tools to perform the analysis:
-1. Call analyze_health_metrics with the biometric data (age, height_cm, weight_kg, etc.)
-2. Call extract_risk_indicators with medical conditions, medications, and family history
+1. Call analyze_health_metrics with: age={age}, height_cm={height_cm}, weight_kg={weight_kg}
+2. Call extract_risk_indicators with medical conditions, medications, and family history from the patient profile
 
 For each risk indicator found, provide:
 - indicator_id: Unique ID (e.g., "IND-ACT-001")
@@ -1439,10 +1457,10 @@ For each risk indicator found, provide:
 - explanation: Why this is a risk indicator
 
 Return your response as JSON with this structure:
-{
+{{
   "risk_indicators": [...],
   "summary": "..."
-}"""
+}}"""
             
             result = await self._invoke_foundry_agent(
                 "HealthDataAnalysisAgent",
@@ -3003,17 +3021,20 @@ Return JSON:
         else:
             alcohol_use = "none"
         
-        # Extract BMI
+        # Extract height and weight
+        height_cm = 170.0  # Default
+        weight_kg = 70.0   # Default
         bmi = 22.0
         try:
             height_str = str(customer_profile.get("height", "170 cm"))
             weight_str = str(customer_profile.get("weight", "70 kg"))
             height_cm = self._parse_height(height_str)
             weight_kg = self._parse_weight(weight_str)
-            if height_cm > 0:
+            if height_cm > 0 and weight_kg > 0:
                 bmi = round(weight_kg / ((height_cm / 100) ** 2), 1)
-        except (ValueError, TypeError):
-            pass
+            self.logger.info(f"Extracted biometrics - height: {height_cm}cm, weight: {weight_kg}kg, BMI: {bmi}")
+        except (ValueError, TypeError) as e:
+            self.logger.warning(f"Could not parse height/weight: {e}")
         
         # Extract medical conditions from medical_summary
         hypertension_data = medical_summary.get("hypertension", {}).get("parsed", {})
@@ -3036,6 +3057,8 @@ Return JSON:
                 smoker_status=smoker_status,
                 alcohol_use=alcohol_use,
                 bmi=bmi,
+                height_cm=height_cm,
+                weight_kg=weight_kg,
                 family_history_heart_disease=bool(family_data.get("heart_disease", False)),
                 family_history_cancer=bool(family_data.get("cancer", False)),
                 family_history_diabetes=bool(family_data.get("diabetes", False)),
