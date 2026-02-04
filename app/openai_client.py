@@ -15,6 +15,15 @@ logger = setup_logging()
 # Cache for Azure AD token
 _token_cache: Dict[str, Any] = {}
 
+# Token tracking import (optional - gracefully handle if not available)
+try:
+    from .token_tracker import count_messages_tokens, count_tokens
+    TOKEN_TRACKING_AVAILABLE = True
+except ImportError:
+    TOKEN_TRACKING_AVAILABLE = False
+    logger.debug("Token tracking module not available")
+
+
 
 def _get_azure_ad_token() -> str:
     """Get Azure AD token for Azure OpenAI using DefaultAzureCredential."""
@@ -122,7 +131,29 @@ def chat_completion(
                 ) from exc
 
             usage = data.get("usage", {})
-            return {"content": content, "usage": usage}
+            
+            # If usage data is missing, estimate using tiktoken
+            if not usage and TOKEN_TRACKING_AVAILABLE:
+                prompt_tokens = count_messages_tokens(messages, model)
+                completion_tokens = count_tokens(content, model)
+                usage = {
+                    "prompt_tokens": prompt_tokens,
+                    "completion_tokens": completion_tokens,
+                    "total_tokens": prompt_tokens + completion_tokens,
+                    "estimated": True,  # Flag indicating this was estimated
+                }
+                logger.debug(
+                    "Estimated token usage: %d prompt + %d completion = %d total",
+                    prompt_tokens, completion_tokens, prompt_tokens + completion_tokens
+                )
+            
+            # Add model info to result for tracking
+            return {
+                "content": content, 
+                "usage": usage,
+                "model": model,
+                "deployment": deployment,
+            }
 
         except Exception as exc:  # noqa: BLE001
             last_err = exc

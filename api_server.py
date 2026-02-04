@@ -42,6 +42,13 @@ from app.config import UNDERWRITING_FIELD_SCHEMA
 from app.personas import list_personas, get_persona_config, get_field_schema
 from app.utils import setup_logging
 
+# Token tracking (optional - graceful fallback if not available)
+try:
+    from app.token_tracker import track_chat_completion
+    TOKEN_TRACKING_AVAILABLE = True
+except ImportError:
+    TOKEN_TRACKING_AVAILABLE = False
+
 # Setup logging
 logger = setup_logging()
 
@@ -2072,6 +2079,22 @@ async def chat_with_application(app_id: str, request: ChatRequest):
         
         logger.info("Chat: Received response from OpenAI")
         
+        # Track token usage for chat
+        if TOKEN_TRACKING_AVAILABLE:
+            try:
+                await track_chat_completion(
+                    result=result,
+                    messages=messages,
+                    agent_id="application_chat",
+                    application_id=app_id,
+                    operation_type="chat",
+                    model_name=chat_model,
+                    deployment_name=chat_deployment,
+                    persist=True,
+                )
+            except Exception as e:
+                logger.debug(f"Token tracking skipped for chat: {e}")
+        
         # Build response with optional RAG metadata
         response_data = {
             "response": result["content"],
@@ -2452,6 +2475,22 @@ async def create_or_continue_conversation(app_id: str, request: ChatRequest):
                 )
             )
         
+        # Track token usage for conversation
+        if TOKEN_TRACKING_AVAILABLE:
+            try:
+                await track_chat_completion(
+                    result=result,
+                    messages=messages,
+                    agent_id="conversation_chat",
+                    application_id=app_id,
+                    operation_type="conversation",
+                    model_name=chat_model,
+                    deployment_name=chat_deployment,
+                    persist=True,
+                )
+            except Exception as e:
+                logger.debug(f"Token tracking skipped for conversation: {e}")
+        
         # Add assistant response
         assistant_message = {
             "role": "assistant",
@@ -2519,6 +2558,118 @@ async def health_check_database():
             return {"status": "ok", "version": version}
     except Exception as e:
         return {"status": "error", "error": str(e)}
+
+
+# =============================================================================
+# Token Usage Analytics API Endpoints
+# =============================================================================
+
+@app.get("/api/admin/tokens/analytics")
+async def get_token_analytics(
+    application_id: Optional[str] = Query(default=None, description="Filter by application ID"),
+    days_back: int = Query(default=7, ge=1, le=90, description="Number of days to look back"),
+):
+    """Get aggregated token usage analytics from Cosmos DB.
+    
+    Returns total tokens, costs, and breakdown by agent for the specified period.
+    """
+    try:
+        from app.cosmos.service import get_cosmos_service
+        cosmos = await get_cosmos_service()
+        
+        if not cosmos.is_available:
+            return {
+                "status": "unavailable",
+                "message": "Cosmos DB not configured",
+                "total_tokens": 0,
+                "total_cost_usd": 0.0,
+            }
+        
+        analytics = await cosmos.get_token_usage_analytics(
+            application_id=application_id,
+            days_back=days_back,
+        )
+        
+        return {
+            "status": "ok",
+            **analytics,
+        }
+    except Exception as e:
+        logger.error("Failed to get token analytics: %s", e, exc_info=True)
+        return {
+            "status": "error",
+            "error": str(e),
+            "total_tokens": 0,
+            "total_cost_usd": 0.0,
+        }
+
+
+@app.get("/api/admin/tokens/by-execution/{execution_id}")
+async def get_token_usage_by_execution(execution_id: str):
+    """Get detailed token usage records for a specific workflow execution."""
+    try:
+        from app.cosmos.service import get_cosmos_service
+        cosmos = await get_cosmos_service()
+        
+        if not cosmos.is_available:
+            return {
+                "status": "unavailable",
+                "message": "Cosmos DB not configured",
+                "records": [],
+            }
+        
+        records = await cosmos.get_token_usage_by_execution(execution_id)
+        
+        # Calculate summary
+        total_tokens = sum(r.get("total_tokens", 0) for r in records)
+        total_cost = sum(r.get("total_cost_usd", 0.0) for r in records)
+        
+        return {
+            "status": "ok",
+            "execution_id": execution_id,
+            "total_tokens": total_tokens,
+            "total_cost_usd": round(total_cost, 6),
+            "record_count": len(records),
+            "records": records,
+        }
+    except Exception as e:
+        logger.error("Failed to get token usage for execution %s: %s", execution_id, e, exc_info=True)
+        return {
+            "status": "error",
+            "error": str(e),
+            "records": [],
+        }
+
+
+@app.get("/api/applications/{app_id}/tokens")
+async def get_application_token_usage(app_id: str):
+    """Get token usage summary for a specific application."""
+    try:
+        from app.cosmos.service import get_cosmos_service
+        cosmos = await get_cosmos_service()
+        
+        if not cosmos.is_available:
+            return {
+                "status": "unavailable",
+                "message": "Cosmos DB not configured",
+            }
+        
+        analytics = await cosmos.get_token_usage_analytics(
+            application_id=app_id,
+            days_back=365,  # All time for this application
+        )
+        
+        return {
+            "status": "ok",
+            "application_id": app_id,
+            **analytics,
+        }
+    except Exception as e:
+        logger.error("Failed to get token usage for application %s: %s", app_id, e, exc_info=True)
+        return {
+            "status": "error",
+            "error": str(e),
+        }
 
 
 # =============================================================================

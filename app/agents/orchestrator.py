@@ -50,6 +50,19 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, AsyncGenerator
 from uuid import uuid4
 from pydantic import Field
 
+# Token tracking import (optional - gracefully handle if not available)
+try:
+    from app.token_tracker import (
+        track_agent_execution,
+        create_tracking_context,
+        close_tracking_context,
+        persist_context,
+        TokenTrackingContext,
+    )
+    TOKEN_TRACKING_AVAILABLE = True
+except ImportError:
+    TOKEN_TRACKING_AVAILABLE = False
+
 
 # =============================================================================
 # PROGRESS TRACKING
@@ -262,11 +275,17 @@ class ExecutionContext:
     - Tracks evaluation results for each agent
     - Stores workflow-level evaluation results
     - Evaluations run AFTER agent execution (non-blocking)
+    
+    TOKEN TRACKING:
+    - Records token usage for each agent execution
+    - Aggregates total workflow token consumption
+    - Persists to Cosmos DB token_tracking container
     """
     
-    def __init__(self, patient_id: str, workflow_id: str):
+    def __init__(self, patient_id: str, workflow_id: str, application_id: Optional[str] = None):
         self.patient_id = patient_id
         self.workflow_id = workflow_id
+        self.application_id = application_id or patient_id
         self.start_time = datetime.now(timezone.utc)
         self._outputs: Dict[str, AgentOutput] = {}
         self._records: List[AgentExecutionRecord] = []
@@ -280,6 +299,20 @@ class ExecutionContext:
         # Foundry Evaluations (STEP 4 integration)
         self._evaluations: Dict[str, AgentEvaluationResult] = {}
         self._workflow_evaluation: Optional[WorkflowEvaluationResult] = None
+        
+        # Token tracking
+        self._token_records: List[Dict[str, Any]] = []
+        self._token_context: Optional[Any] = None
+        if TOKEN_TRACKING_AVAILABLE:
+            try:
+                self._token_context = create_tracking_context(
+                    execution_id=workflow_id,
+                    application_id=self.application_id,
+                    operation_type="agent_workflow",
+                )
+                self.logger.debug("Token tracking context created for workflow %s", workflow_id)
+            except Exception as e:
+                self.logger.warning("Could not create token tracking context: %s", e)
     
     def store_output(
         self, 
@@ -384,6 +417,118 @@ class ExecutionContext:
             return truncate_strings(data)
         except Exception:
             return {"raw": str(output)[:500]}
+    
+    # =========================================================================
+    # TOKEN TRACKING METHODS
+    # =========================================================================
+    
+    def record_token_usage(
+        self,
+        agent_id: str,
+        token_usage: Optional[Dict[str, int]],
+        step_number: int,
+        model_name: Optional[str] = None,
+    ) -> None:
+        """Record token usage for an agent execution.
+        
+        Args:
+            agent_id: The agent identifier.
+            token_usage: Dict with prompt_tokens, completion_tokens, total_tokens.
+            step_number: The step number in the workflow.
+            model_name: Optional model name for cost calculation.
+        """
+        if not token_usage:
+            self.logger.debug("No token usage data for %s", agent_id)
+            return
+        
+        prompt_tokens = token_usage.get("prompt_tokens", 0)
+        completion_tokens = token_usage.get("completion_tokens", 0)
+        total_tokens = token_usage.get("total_tokens", prompt_tokens + completion_tokens)
+        
+        if total_tokens == 0:
+            self.logger.debug("Zero tokens recorded for %s", agent_id)
+            return
+        
+        record = {
+            "agent_id": agent_id,
+            "step_number": step_number,
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "total_tokens": total_tokens,
+            "model_name": model_name,
+        }
+        self._token_records.append(record)
+        
+        # Also record in token context if available
+        if self._token_context:
+            self._token_context.record_usage(
+                agent_id=agent_id,
+                agent_type="foundry_agent",
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                model_name=model_name,
+            )
+        
+        self.logger.info(
+            "Token usage recorded: %s (step %d) - %d prompt + %d completion = %d total",
+            agent_id, step_number, prompt_tokens, completion_tokens, total_tokens
+        )
+    
+    def get_token_records(self) -> List[Dict[str, Any]]:
+        """Get all token usage records for this execution."""
+        return self._token_records.copy()
+    
+    def get_token_summary(self) -> Dict[str, Any]:
+        """Get summary of token usage across all agents."""
+        total_prompt = sum(r.get("prompt_tokens", 0) for r in self._token_records)
+        total_completion = sum(r.get("completion_tokens", 0) for r in self._token_records)
+        total_tokens = sum(r.get("total_tokens", 0) for r in self._token_records)
+        
+        by_agent = {}
+        for record in self._token_records:
+            agent_id = record["agent_id"]
+            if agent_id not in by_agent:
+                by_agent[agent_id] = {"prompt": 0, "completion": 0, "total": 0}
+            by_agent[agent_id]["prompt"] += record.get("prompt_tokens", 0)
+            by_agent[agent_id]["completion"] += record.get("completion_tokens", 0)
+            by_agent[agent_id]["total"] += record.get("total_tokens", 0)
+        
+        return {
+            "workflow_id": self.workflow_id,
+            "total_prompt_tokens": total_prompt,
+            "total_completion_tokens": total_completion,
+            "total_tokens": total_tokens,
+            "agent_count": len(self._token_records),
+            "by_agent": by_agent,
+        }
+    
+    async def persist_token_usage(self) -> int:
+        """Persist token records to Cosmos DB.
+        
+        Returns:
+            Number of records persisted.
+        """
+        if not TOKEN_TRACKING_AVAILABLE:
+            return 0
+        
+        if self._token_context:
+            try:
+                count = await persist_context(self._token_context)
+                self.logger.info("Persisted %d token records to Cosmos DB", count)
+                return count
+            except Exception as e:
+                self.logger.warning("Failed to persist token records: %s", e)
+        
+        return 0
+    
+    def close_token_tracking(self) -> None:
+        """Close the token tracking context."""
+        if TOKEN_TRACKING_AVAILABLE and self._token_context:
+            try:
+                close_tracking_context(self.workflow_id)
+                self.logger.debug("Token tracking context closed for workflow %s", self.workflow_id)
+            except Exception as e:
+                self.logger.warning("Error closing token tracking context: %s", e)
 
 
 # =============================================================================
@@ -566,8 +711,11 @@ class OrchestratorAgent:
         # Validate input
         validated_input = self.validate_input(input_data)
         
-        # Create execution context
-        context = ExecutionContext(validated_input.patient_id, workflow_id)
+        # Extract application_id for token tracking
+        application_id = input_data.get("application_id") or validated_input.patient_id
+        
+        # Create execution context with token tracking
+        context = ExecutionContext(validated_input.patient_id, workflow_id, application_id)
         
         # Check if we have real application data
         has_real_data = (
@@ -791,8 +939,11 @@ class OrchestratorAgent:
         # Validate input
         validated_input = self.validate_input(input_data)
         
-        # Create execution context
-        context = ExecutionContext(validated_input.patient_id, workflow_id)
+        # Extract application_id for token tracking
+        application_id = input_data.get("application_id") or validated_input.patient_id
+        
+        # Create execution context with token tracking
+        context = ExecutionContext(validated_input.patient_id, workflow_id, application_id)
         
         # Check if we have real application data
         has_real_data = (
@@ -1138,6 +1289,23 @@ class OrchestratorAgent:
         
         self.logger.info(f"Workflow {workflow_id} completed in {output.total_execution_time_ms:.2f}ms (source={execution_source})")
         
+        # Persist token usage to Cosmos DB (non-blocking)
+        try:
+            token_summary = context.get_token_summary()
+            if token_summary.get("total_tokens", 0) > 0:
+                self.logger.info(
+                    "Token usage summary: %d total tokens across %d agent calls",
+                    token_summary["total_tokens"],
+                    token_summary["agent_count"]
+                )
+                # Persist asynchronously - don't block on this
+                await context.persist_token_usage()
+        except Exception as e:
+            self.logger.warning(f"Failed to persist token usage (non-fatal): {e}")
+        finally:
+            # Clean up token tracking context
+            context.close_token_tracking()
+        
         # Yield the final output
         yield output
     
@@ -1177,6 +1345,8 @@ class OrchestratorAgent:
         agent_id: str,
         prompt: str,
         context_data: Dict[str, Any],
+        execution_context: Optional[ExecutionContext] = None,
+        step_number: int = 0,
     ) -> Dict[str, Any]:
         """
         Invoke an agent via Azure AI Foundry.
@@ -1185,6 +1355,8 @@ class OrchestratorAgent:
             agent_id: Local agent ID (e.g., "HealthDataAnalysisAgent")
             prompt: The prompt/instructions for the agent
             context_data: Input data for the agent
+            execution_context: Optional execution context for token tracking
+            step_number: Step number in workflow for token tracking
             
         Returns:
             Parsed response from the agent
@@ -1212,6 +1384,15 @@ class OrchestratorAgent:
         tools_used = []
         if hasattr(result, 'tools_executed') and result.tools_executed:
             tools_used = [t.get("tool_name", "unknown") for t in result.tools_executed]
+        
+        # Record token usage if context is provided
+        if execution_context and result.token_usage:
+            execution_context.record_token_usage(
+                agent_id=agent_id,
+                token_usage=result.token_usage,
+                step_number=step_number,
+                model_name=getattr(invoker, 'model_deployment', None),
+            )
         
         return {
             "response": result.response,
@@ -1267,6 +1448,8 @@ Return your response as JSON with this structure:
                 "HealthDataAnalysisAgent",
                 prompt,
                 input_data,
+                execution_context=context,
+                step_number=1,
             )
             
             # Get actual tools executed from Foundry
@@ -1372,7 +1555,10 @@ Return JSON:
   "freshness_assessment": "Data is current within 30 days",
   "recommendations": ["recommendation1"]
 }"""
-            result = await self._invoke_foundry_agent("DataQualityConfidenceAgent", prompt, input_data)
+            result = await self._invoke_foundry_agent(
+                "DataQualityConfidenceAgent", prompt, input_data,
+                execution_context=context, step_number=2
+            )
             parsed = result.get("parsed") or {}
             
             from data.mock.schemas import DataQualityLevel, QualityFlag
@@ -1502,6 +1688,8 @@ Return your final assessment as JSON:
                         "PolicyRiskAgent",
                         prompt,
                         input_data,
+                        execution_context=context,
+                        step_number=3,
                     )
                     use_foundry_agent = True
                     parsed = result.get("parsed") or {}
@@ -1760,7 +1948,9 @@ IMPORTANT: If retrieved_chunks_count is 0, set approved=false with rationale exp
                     "risk_indicators": [ri.model_dump() for ri in hda_output.risk_indicators],
                     "patient_profile": patient_profile.model_dump(mode='json'),
                     "base_premium": base_premium,
-                }
+                },
+                execution_context=context,
+                step_number=4,
             )
             parsed = result.get("parsed") or {}
             
@@ -1950,7 +2140,10 @@ Provide JSON:
   "protected_attributes_analyzed": ["age", "sex", "region"]
 }"""
 
-            result = await self._invoke_foundry_agent("BiasAndFairnessAgent", prompt, decision_context)
+            result = await self._invoke_foundry_agent(
+                "BiasAndFairnessAgent", prompt, decision_context,
+                execution_context=context, step_number=5
+            )
             parsed = result.get("parsed") or {}
             
             # Extract bias flags
@@ -2084,15 +2277,20 @@ Return JSON:
   "key_points": ["point1", "point2", "point3"]
 }}"""
 
-            result = await self._invoke_foundry_agent("CommunicationAgent", prompt, {
-                "status": status.value,
-                "risk_level": risk_level_str,
-                "premium_adjustment_pct": premium_adjustment_pct,
-                "adjusted_premium": adjusted_premium,
-                "rationale": brv_output.rationale,
-                "key_risk_factors": key_risk_factors,
-                "patient_profile": patient_profile.model_dump(mode='json'),
-            })
+            result = await self._invoke_foundry_agent(
+                "CommunicationAgent", prompt, 
+                {
+                    "status": status.value,
+                    "risk_level": risk_level_str,
+                    "premium_adjustment_pct": premium_adjustment_pct,
+                    "adjusted_premium": adjusted_premium,
+                    "rationale": brv_output.rationale,
+                    "key_risk_factors": key_risk_factors,
+                    "patient_profile": patient_profile.model_dump(mode='json'),
+                },
+                execution_context=context,
+                step_number=6,
+            )
             parsed = result.get("parsed") or {}
             
             output = CommunicationOutput(
@@ -2231,11 +2429,16 @@ Return JSON:
   "recommendations": ["rec1", "rec2"]
 }}"""
 
-            result = await self._invoke_foundry_agent("AuditAndTraceAgent", prompt, {
-                "workflow_id": context.workflow_id,
-                "patient_id": patient_id,
-                "agent_outputs": [ao.model_dump(mode='json') for ao in agent_outputs],
-            })
+            result = await self._invoke_foundry_agent(
+                "AuditAndTraceAgent", prompt, 
+                {
+                    "workflow_id": context.workflow_id,
+                    "patient_id": patient_id,
+                    "agent_outputs": [ao.model_dump(mode='json') for ao in agent_outputs],
+                },
+                execution_context=context,
+                step_number=7,
+            )
             parsed = result.get("parsed") or {}
             
             # Generate audit ID

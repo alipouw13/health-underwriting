@@ -29,6 +29,13 @@ from .personas import get_persona_config
 from .utils import setup_logging
 from .underwriting_policies import format_all_policies_for_prompt
 
+# Token tracking (optional - graceful fallback if not available)
+try:
+    from .token_tracker import track_chat_completion
+    TOKEN_TRACKING_AVAILABLE = True
+except ImportError:
+    TOKEN_TRACKING_AVAILABLE = False
+
 logger = setup_logging()
 
 
@@ -356,6 +363,25 @@ def _run_single_prompt(
     logger.info("Running prompt: %s.%s", section, subsection)
     result = chat_completion(settings.openai, messages)
     raw_content = result["content"]
+    
+    # Track token usage (fire-and-forget, non-blocking)
+    if TOKEN_TRACKING_AVAILABLE:
+        try:
+            import asyncio
+            # Create a task to track asynchronously if we have an event loop
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                asyncio.create_task(track_chat_completion(
+                    result=result,
+                    messages=messages,
+                    agent_id=f"processing.{section}.{subsection}",
+                    operation_type="document_analysis",
+                    model_name=result.get("model"),
+                    deployment_name=result.get("deployment"),
+                    persist=True,
+                ))
+        except Exception as e:
+            logger.debug(f"Token tracking skipped: {e}")
 
     try:
         parsed = json.loads(raw_content)
@@ -692,6 +718,25 @@ def run_risk_analysis(
     logger.info("Sending risk analysis prompt to LLM")
     result = chat_completion(settings.openai, messages, max_tokens=3000)
     raw_content = result["content"]
+    
+    # Track token usage (fire-and-forget, non-blocking)
+    if TOKEN_TRACKING_AVAILABLE:
+        try:
+            import asyncio
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                asyncio.create_task(track_chat_completion(
+                    result=result,
+                    messages=messages,
+                    agent_id="processing.risk_analysis",
+                    application_id=app_md.id,
+                    operation_type="risk_analysis",
+                    model_name=result.get("model"),
+                    deployment_name=result.get("deployment"),
+                    persist=True,
+                ))
+        except Exception as e:
+            logger.debug(f"Token tracking skipped: {e}")
     
     # Strip markdown code fences if present (e.g., ```json ... ```)
     content_to_parse = raw_content.strip()
