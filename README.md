@@ -77,21 +77,20 @@ InsureAI delivers measurable business impact across insurance operations:
 │ │    Engine    │    │  Orchestrator    │    │   (Apple Health)    │         │
 │ └──────────────┘    └────────┬─────────┘    └─────────────────────┘         │
 │                              │                                              │
-│         ┌────────────────────┼────────────────────┐                         │
-│         │                    │                    │                         │
-│         ▼                    ▼                    ▼                         │
-│  ┌─────────────┐   ┌─────────────────┐   ┌─────────────────┐                │
-│  │   Health    │   │   Policy Risk   │   │  Business Rules │                │
-│  │   Data      │   │     Agent       │   │   Validation    │                │
-│  │   Analysis  │   │                 │   │     Agent       │                │
-│  └─────────────┘   └─────────────────┘   └─────────────────┘                │
-│         │                    │                    │                         │
-│         └────────────────────┼────────────────────┘                         │
-│                              ▼                                              │
-│                    ┌─────────────────┐                                      │
-│                    │  Communication  │                                      │
-│                    │     Agent       │                                      │
-│                    └─────────────────┘                                      │
+│         ┌────────────────────┴────────────────────┐                         │
+│         │                                         │                         │
+│         ▼                                         ▼                         │
+│  ┌─────────────────────┐              ┌─────────────────────┐               │
+│  │   Health Data       │              │   Policy Risk       │               │
+│  │   Analysis Agent    │─────────────>│   Agent             │               │
+│  │                     │              │   (Decision Maker)  │               │
+│  └─────────────────────┘              └──────────┬──────────┘               │
+│                                                  │                          │
+│                                                  ▼                          │
+│                                       ┌─────────────────────┐               │
+│                                       │   Communication     │               │
+│                                       │   Agent             │               │
+│                                       └─────────────────────┘               │
 │                              │                                              │
 │                              ▼                                              │
 │                    ┌─────────────────┐                                      │
@@ -113,7 +112,7 @@ InsureAI delivers measurable business impact across insurance operations:
 │ │   Content    │    │    Service       │    │      Agents         │         │
 │ │Understanding │    │                  │    │                     │         │
 │ │              │    │  • GPT-4.1       │    │  • Health Analysis  │         │
-│ │• Doc Search  │    │  • Embeddings    │    │  • Risk Validation  │         │
+│ │• Doc Search  │    │  • Embeddings    │    │  • Policy Risk      │         │
 │ │• OCR/Layout  │    │  • Chat          │    │  • Communication    │         │
 │ │• Extraction  │    │                  │    │                     │         │
 │ └──────────────┘    └──────────────────┘    └─────────────────────┘         │
@@ -144,10 +143,10 @@ InsureAI delivers measurable business impact across insurance operations:
 
 ```
 ┌────────────┐    ┌─────────────────┐    ┌─────────────────┐    ┌─────────────┐
-│  Document  │───>│  Health Data    │───>│  Policy Risk    │───>│  Business   │
-│  Upload    │    │  Analysis Agent │    │     Agent       │    │  Rules      │
-└────────────┘    └─────────────────┘    └─────────────────┘    │ Validation  │
-                         │                       │              └──────┬──────┘
+│  Document  │───>│  Health Data    │───>│  Policy Risk    │───>│Communication│
+│  Upload    │    │  Analysis Agent │    │  Agent (Decide) │    │   Agent     │
+└────────────┘    └─────────────────┘    └─────────────────┘    └──────┬──────┘
+                         │                       │                     │
                          │                       │                     │
                          ▼                       ▼                     ▼
                   ┌─────────────┐         ┌─────────────┐       ┌─────────────┐
@@ -156,12 +155,6 @@ InsureAI delivers measurable business impact across insurance operations:
                   └─────────────┘         └─────────────┘       └─────────────┘
                                                                        │
                                                                        ▼
-                                                            ┌─────────────────┐
-                                                            │  Communication  │
-                                                            │     Agent       │
-                                                            └────────┬────────┘
-                                                                     │
-                                                                     ▼
                                                             ┌─────────────────┐
                                                             │ Final Decision  │
                                                             │ + Workflow Eval │
@@ -174,7 +167,7 @@ InsureAI delivers measurable business impact across insurance operations:
 
 ### Multi-Agent Underwriting Engine
 
-- **Orchestrated Agent Workflow** - 4-agent pipeline for comprehensive risk assessment
+- **Orchestrated Agent Workflow** - 2-agent pipeline (Health Analysis → Policy Risk) + Communication for comprehensive risk assessment
 - **Azure AI Foundry Integration** - Agents deployed as Foundry AI agents with tool calling
 - **Real-time Progress Streaming** - SSE-based progress updates during agent execution
 - **Agent Transparency View** - Full visibility into each agent's inputs, outputs, and reasoning
@@ -329,7 +322,7 @@ InsureAI delivers measurable business impact across insurance operations:
 |----------|---------|---------------|
 | **Azure AI Foundry Project** | Agent deployment and management | Create project in AI Foundry portal |
 | **Foundry Agent: HealthDataAnalysis** | Health metrics analysis | Deploy via Foundry |
-| **Foundry Agent: BusinessRulesValidation** | Policy rule validation | Deploy via Foundry |
+| **Foundry Agent: PolicyRisk** | Policy rule validation & underwriting decision | Deploy via Foundry |
 | **Foundry Agent: Communication** | Decision communication generation | Deploy via Foundry |
 
 ### Optional Resources

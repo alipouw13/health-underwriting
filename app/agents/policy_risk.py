@@ -50,7 +50,11 @@ class PolicyRiskInput(AgentInput):
 
 
 class PolicyRiskOutput(AgentOutput):
-    """Output schema for PolicyRiskAgent."""
+    """Output schema for PolicyRiskAgent.
+    
+    This agent produces the final underwriting decision by evaluating
+    risk indicators against the JSON policy manual.
+    """
     
     risk_level: RiskLevel = Field(..., description="Overall risk classification")
     premium_adjustment_recommendation: PremiumAdjustment = Field(
@@ -58,6 +62,10 @@ class PolicyRiskOutput(AgentOutput):
     )
     triggered_rules: List[str] = Field(default_factory=list, description="List of rule IDs that were triggered")
     rule_evaluation_log: List[str] = Field(default_factory=list, description="Detailed log of rule evaluations")
+    approved: bool = Field(default=True, description="Whether the application is approved")
+    decision: str = Field(default="approved", description="Final decision: approved, approved_with_adjustment, declined, or referred")
+    rationale: str = Field(default="", description="Explanation for the decision")
+    referral_required: bool = Field(default=False, description="Whether manual review is required")
 
 
 # =============================================================================

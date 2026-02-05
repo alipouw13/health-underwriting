@@ -50,7 +50,6 @@ from app.agents.base import (
 )
 from app.agents.health_data_analysis import HealthDataAnalysisAgent
 from app.agents.policy_risk import PolicyRiskAgent
-from app.agents.business_rules_validation import BusinessRulesValidationAgent
 from app.agents.data_quality_confidence import DataQualityConfidenceAgent
 from app.agents.bias_fairness import BiasAndFairnessAgent
 from app.agents.communication import CommunicationAgent
@@ -64,10 +63,9 @@ __all__ = [
     "AgentOutput",
     "AgentExecutionError",
     "AgentValidationError",
-    # Agent implementations
+    # Agent implementations (simplified 2-agent + communication workflow)
     "HealthDataAnalysisAgent",
     "PolicyRiskAgent",
-    "BusinessRulesValidationAgent",
     "DataQualityConfidenceAgent",
     "BiasAndFairnessAgent",
     "CommunicationAgent",

@@ -1,0 +1,387 @@
+{
+  "policy_set_name": "Apple HealthKit Underwriting Rules",
+  "version": "1.0.0",
+  "effective_date": "2026-01-01",
+  "description": "HealthKit data-driven underwriting rules for life and health insurance. HKRS (HealthKit Risk Score) supplements traditional underwriting.",
+  
+  "scope": {
+    "purpose": "Use Apple HealthKit data to supplement traditional underwriting",
+    "outputs": ["HealthKit Risk Score (HKRS): 0-100", "Risk Class adjustments"],
+    "covered_products": ["Term Life", "Permanent Life (simplified)", "Individual Health", "Critical Illness"],
+    "excluded_products": ["Guaranteed Issue", "Group underwriting", "Disability income"]
+  },
+
+  "core_principles": [
+    "Behavior-based signals matter (activity, sleep, fitness)",
+    "Longitudinal trends (90-365 days) > point-in-time snapshots",
+    "HealthKit data is additive only (cannot auto-decline)",
+    "All automated decisions must be explainable"
+  ],
+
+  "consent_requirements": {
+    "required_permissions": ["HealthKit data access", "Lookback period access", "Optional ongoing refresh"],
+    "default_lookback_months": 12,
+    "data_handling": {
+      "access_type": "read-only",
+      "raw_data_retention": "underwriting window only",
+      "aggregated_metrics_retained": true,
+      "compliance_standards": ["HIPAA", "PHIPA", "GDPR"]
+    }
+  },
+
+  "data_categories": {
+    "included": {
+      "activity": {
+        "metrics": ["steps_per_day", "active_energy_burned"],
+        "description": "Daily activity levels and energy expenditure"
+      },
+      "fitness": {
+        "metrics": ["vo2_max"],
+        "description": "Cardiorespiratory fitness capacity"
+      },
+      "vitals": {
+        "metrics": ["resting_heart_rate", "heart_rate_variability"],
+        "description": "Heart health indicators"
+      },
+      "sleep": {
+        "metrics": ["sleep_duration", "sleep_consistency"],
+        "description": "Sleep quantity and regularity"
+      },
+      "body_metrics": {
+        "metrics": ["weight_trend", "bmi_trend"],
+        "description": "Body composition trends over time"
+      },
+      "mobility": {
+        "metrics": ["walking_speed", "walking_steadiness"],
+        "description": "Movement quality and stability indicators"
+      },
+      "exercise": {
+        "metrics": ["workout_frequency", "workout_intensity"],
+        "description": "Structured exercise patterns"
+      }
+    },
+    "excluded": ["reproductive_health", "mental_health_notes", "gps_location_data"]
+  },
+
+  "data_quality_requirements": {
+    "minimum_coverage": {
+      "steps": {
+        "min_days": 120,
+        "lookback_months": 12
+      },
+      "sleep": {
+        "min_days": 90,
+        "lookback_months": 6
+      },
+      "vo2_max": {
+        "min_readings": 3,
+        "lookback_months": 12
+      },
+      "heart_rate": {
+        "min_days": 60,
+        "lookback_months": 6
+      }
+    },
+    "data_quality_score": {
+      "high": {
+        "threshold": 80,
+        "description": ">=80% completeness",
+        "action": "eligible_for_automation"
+      },
+      "medium": {
+        "threshold": 50,
+        "description": "50-79% completeness",
+        "action": "standard_processing"
+      },
+      "low": {
+        "threshold": 0,
+        "description": "<50% completeness",
+        "action": "manual_review_required"
+      }
+    }
+  },
+
+  "age_adjustment_factor": {
+    "description": "Age is a normalization factor, not a penalty. Prevents penalizing healthy older applicants.",
+    "applies_to": ["vo2_max", "resting_hr", "hrv", "walking_speed", "recovery_metrics"],
+    "factors": {
+      "18-34": 1.00,
+      "35-44": 0.98,
+      "45-54": 0.95,
+      "55-64": 0.92,
+      "65+": 0.88
+    }
+  },
+
+  "hkrs_formula": {
+    "description": "HealthKit Risk Score = (Σ weighted sub-scores) × Age Adjustment Factor",
+    "max_score": 100,
+    "components": [
+      {"name": "activity_score", "weight": 0.25, "max_points": 25},
+      {"name": "vo2_max_score", "weight": 0.20, "max_points": 20},
+      {"name": "heart_health_score", "weight": 0.20, "max_points": 20},
+      {"name": "sleep_health_score", "weight": 0.15, "max_points": 15},
+      {"name": "body_composition_score", "weight": 0.10, "max_points": 10},
+      {"name": "mobility_score", "weight": 0.10, "max_points": 10}
+    ]
+  },
+
+  "sub_scores": {
+    "activity_score": {
+      "weight": 0.25,
+      "max_points": 25,
+      "calculation": {
+        "steps_per_day": {
+          ">8000": 25,
+          "6000-7999": 18,
+          "4000-5999": 10,
+          "<4000": 0
+        },
+        "trend_modifier": {
+          "upward_6mo": 3,
+          "stable": 0,
+          "declining_6mo": -3
+        }
+      }
+    },
+    "vo2_max_score": {
+      "weight": 0.20,
+      "max_points": 20,
+      "description": "Cardiorespiratory fitness - age and sex normalized",
+      "calculation": {
+        "percentile": {
+          ">=75": 20,
+          "50-74": 15,
+          "25-49": 8,
+          "<25": 0
+        }
+      },
+      "normalization": "age_and_sex_adjusted"
+    },
+    "heart_health_score": {
+      "weight": 0.20,
+      "max_points": 20,
+      "calculation": {
+        "resting_hr": {
+          "preferred_range_bpm": [50, 70],
+          "max_points": 10,
+          "scoring": {
+            "50-70": 10,
+            "71-75": 7,
+            "76-80": 4,
+            ">80": 0,
+            "<50": 5
+          }
+        },
+        "hrv": {
+          "threshold": "age-normalized 60th percentile",
+          "max_points": 10,
+          "scoring": {
+            ">=60th_percentile": 10,
+            "40th-59th_percentile": 6,
+            "<40th_percentile": 0
+          }
+        }
+      },
+      "partial_credit": true
+    },
+    "sleep_health_score": {
+      "weight": 0.15,
+      "max_points": 15,
+      "calculation": {
+        "duration": {
+          "optimal_hours": [7, 8],
+          "max_points": 10,
+          "scoring": {
+            "7-8": 10,
+            "6-6.9": 6,
+            "8.1-9": 6,
+            "<6": 0,
+            ">9": 3
+          }
+        },
+        "consistency": {
+          "threshold_hours": 1,
+          "max_points": 5,
+          "scoring": {
+            "within_1_hour": 5,
+            "1-2_hours_variance": 3,
+            ">2_hours_variance": 0
+          }
+        }
+      }
+    },
+    "body_composition_score": {
+      "weight": 0.10,
+      "max_points": 10,
+      "calculation": {
+        "bmi_or_weight_trend": {
+          "stable_or_improving": 10,
+          "mild_increase": 5,
+          "significant_increase": 0
+        },
+        "thresholds": {
+          "stable": "change within +/- 2%",
+          "mild_increase": "2-5% increase",
+          "significant_increase": ">5% increase"
+        }
+      }
+    },
+    "mobility_score": {
+      "weight": 0.10,
+      "max_points": 10,
+      "calculation": {
+        "walking_speed": {
+          "threshold": "age 60th percentile",
+          "max_points": 5,
+          "scoring": {
+            ">60th_percentile": 5,
+            "40th-60th_percentile": 3,
+            "<40th_percentile": 0
+          }
+        },
+        "steadiness": {
+          "max_points": 5,
+          "scoring": {
+            "normal": 5,
+            "slightly_unsteady": 2,
+            "unsteady": 0
+          }
+        }
+      }
+    }
+  },
+
+  "hkrs_bands": {
+    "excellent": {
+      "range": [85, 100],
+      "description": "Excellent health signals",
+      "action": "eligible_for_best_class"
+    },
+    "very_good": {
+      "range": [70, 84],
+      "description": "Very good health signals",
+      "action": "improve_one_class_max"
+    },
+    "standard_plus": {
+      "range": [55, 69],
+      "description": "Standard Plus health signals",
+      "action": "standard_processing"
+    },
+    "standard": {
+      "range": [40, 54],
+      "description": "Standard health signals",
+      "action": "no_adjustment"
+    },
+    "substandard": {
+      "range": [0, 39],
+      "description": "Substandard / requires manual review",
+      "action": "manual_review_required"
+    }
+  },
+
+  "traditional_underwriting_interaction": {
+    "never_replaces": ["Medical questionnaires", "APS/labs", "MIB checks"],
+    "adjustment_rules": {
+      "hkrs_85_plus": {
+        "condition": "hkrs >= 85",
+        "action": "eligible_for_best_class_if_traditional_aligns"
+      },
+      "hkrs_70_84": {
+        "condition": "70 <= hkrs < 85",
+        "action": "improve_one_class_max"
+      },
+      "hkrs_below_55": {
+        "condition": "hkrs < 55",
+        "action": "no_positive_adjustment"
+      }
+    }
+  },
+
+  "risk_class_mapping": {
+    "preferred_plus": {
+      "hkrs_threshold": 85,
+      "traditional_required": true,
+      "description": "HKRS >= 85 AND traditional underwriting qualifies"
+    },
+    "preferred": {
+      "hkrs_threshold": 70,
+      "upgrade_eligible": "preferred_plus if hkrs >= 85",
+      "description": "HKRS >= 70 may upgrade to Preferred Plus"
+    },
+    "standard_plus": {
+      "hkrs_threshold": 55,
+      "description": "HKRS 55-69"
+    },
+    "standard": {
+      "hkrs_threshold": 40,
+      "no_upgrade_if_hkrs_below": 55,
+      "description": "HKRS 40-54, remains Standard if < 55"
+    },
+    "substandard": {
+      "hkrs_threshold": 0,
+      "action": "manual_review",
+      "description": "HKRS < 40"
+    }
+  },
+
+  "health_insurance_modifiers": {
+    "wellness_discount": {
+      "max_percentage": 10,
+      "hkrs_threshold": 70,
+      "description": "Up to 10% wellness discount for HKRS >= 70"
+    },
+    "deductible_eligibility": {
+      "high_hkrs_benefit": "eligible_for_lower_deductible",
+      "hkrs_threshold": 75
+    },
+    "annual_re_rating": {
+      "opt_in_required": true,
+      "frequency": "annual"
+    }
+  },
+
+  "automation_rules": {
+    "auto_underwrite_eligible": {
+      "conditions": {
+        "hkrs_minimum": 70,
+        "data_quality": "high",
+        "no_traditional_red_flags": true
+      }
+    },
+    "manual_review_triggers": [
+      "rapid_activity_decline",
+      "rapid_sleep_decline",
+      "hrv_deterioration_over_20_percent",
+      "sparse_or_inconsistent_data",
+      "data_quality_low"
+    ]
+  },
+
+  "explainability_requirements": {
+    "applicant_must_receive": [
+      "Summary scorecard",
+      "Top 3 positive drivers",
+      "Improvement suggestions (non-medical language)"
+    ],
+    "example_output": "Your strong activity level and consistent sleep positively influenced your rating."
+  },
+
+  "ongoing_monitoring": {
+    "opt_in_required": true,
+    "frequency": "quarterly",
+    "adjustment_type": "rewards_only",
+    "no_penalties": true,
+    "opt_out_anytime": true
+  },
+
+  "governance": {
+    "validation_frequency": "annual",
+    "requirements": [
+      "Actuarial validation",
+      "Bias testing (age & gender)",
+      "Medical advisory sign-off",
+      "Full regulatory audit trail"
+    ]
+  }
+}

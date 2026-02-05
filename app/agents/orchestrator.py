@@ -19,10 +19,14 @@ evaluation_criteria:
 failure_modes:
   - partial_execution
 
-EXECUTION ORDER (SIMPLIFIED 3-AGENT MVP):
-1. HealthDataAnalysisAgent - Extract health risk signals
-2. BusinessRulesValidationAgent - Apply underwriting rules & calculate premium
-3. CommunicationAgent - Generate decision messages
+EXECUTION ORDER (SIMPLIFIED 2-AGENT MVP + COMMUNICATION):
+1. HealthDataAnalysisAgent - Extract health risk signals from documents
+2. PolicyRiskAgent - Apply JSON underwriting policies, determine risk level, 
+   premium adjustment, and approval/denial decision
+3. CommunicationAgent - Generate decision messages for underwriter and customer
+
+The PolicyRiskAgent uses the JSON policies from prompts/life-health-underwriting-policies.json
+which can be edited via the Admin UI's Underwriting Policies tab.
 
 FUTURE AGENTS (Post-MVP with Foundry SDK evaluations/citations):
 - DataQualityConfidenceAgent
@@ -159,17 +163,13 @@ from app.agents.base import (
     AgentExecutionError,
 )
 
-# Import agents for orchestration (simplified 3-agent workflow)
+# Import agents for orchestration (simplified 2-agent workflow + communication)
 from app.agents.health_data_analysis import (
     HealthDataAnalysisAgent,
     HealthDataAnalysisInput,
     HealthDataAnalysisOutput,
 )
-from app.agents.business_rules_validation import (
-    BusinessRulesValidationAgent,
-    BusinessRulesValidationInput,
-    BusinessRulesValidationOutput,
-)
+from app.agents.policy_risk import PolicyRiskAgent, PolicyRiskOutput
 from app.agents.communication import (
     CommunicationAgent,
     CommunicationInput,
@@ -178,7 +178,6 @@ from app.agents.communication import (
 
 # Import output types for type hints (used in context retrieval)
 from app.agents.data_quality_confidence import DataQualityConfidenceOutput
-from app.agents.policy_risk import PolicyRiskAgent, PolicyRiskOutput
 from app.agents.bias_fairness import BiasAndFairnessOutput
 from app.agents.audit_trace import AuditAndTraceOutput, AgentOutputRecord
 
@@ -390,9 +389,9 @@ class ExecutionContext:
         if agent_id == "HealthDataAnalysisAgent":
             hda_out = output  # type: HealthDataAnalysisOutput
             return f"Identified {len(hda_out.risk_indicators)} risk indicators"
-        elif agent_id == "BusinessRulesValidationAgent":
-            brv_out = output  # type: BusinessRulesValidationOutput
-            return f"Approved: {brv_out.approved}, Violations: {len(brv_out.violations_found)}"
+        elif agent_id == "PolicyRiskAgent":
+            pr_out = output  # type: PolicyRiskOutput
+            return f"Decision: {pr_out.decision}, Risk: {pr_out.risk_level.value}, Adjustment: {pr_out.premium_adjustment_recommendation.adjustment_percentage}%"
         elif agent_id == "CommunicationAgent":
             return "Messages generated"
         else:
@@ -572,14 +571,14 @@ class AgentDefinitionLoader:
         """
         Return the STRICT execution order.
         
-        SIMPLIFIED 3-AGENT WORKFLOW:
-        1. HealthDataAnalysisAgent - Extract risk signals
-        2. BusinessRulesValidationAgent - Apply rules & calculate premium
+        SIMPLIFIED 2-AGENT WORKFLOW + COMMUNICATION:
+        1. HealthDataAnalysisAgent - Extract risk signals from documents
+        2. PolicyRiskAgent - Apply JSON policies, determine risk & decision
         3. CommunicationAgent - Generate decision messages
         """
         return [
             "HealthDataAnalysisAgent",
-            "BusinessRulesValidationAgent",
+            "PolicyRiskAgent",
             "CommunicationAgent",
         ]
 
@@ -596,14 +595,14 @@ class OrchestratorAgent:
     all agents in a STRICT, DETERMINISTIC order and producing a
     final underwriting decision.
     
-    EXECUTION ORDER (NO EXCEPTIONS):
+    EXECUTION ORDER (SIMPLIFIED 2-AGENT + COMMUNICATION):
         1. HealthDataAnalysisAgent - Analyze health data for risk signals
-        2. DataQualityConfidenceAgent - Assess data reliability
-        3. PolicyRiskAgent - Translate signals to risk/premium
-        4. BusinessRulesValidationAgent - Validate business rules
-        5. BiasAndFairnessAgent - Check for bias
-        6. CommunicationAgent - Generate messages
-        7. AuditAndTraceAgent - Create audit trail
+        2. PolicyRiskAgent - Apply JSON policies, determine risk level,
+           premium adjustment, and approval/denial decision
+        3. CommunicationAgent - Generate messages for underwriter and customer
+    
+    The PolicyRiskAgent uses the JSON policies from:
+    prompts/life-health-underwriting-policies.json
     
     CONSTRAINTS:
         - No conditional branching
@@ -628,11 +627,10 @@ class OrchestratorAgent:
     evaluation_criteria = ["correctness", "determinism"]
     failure_modes = ["partial_execution"]
     
-    # Map local agent IDs to Foundry agent names (4-agent workflow with tools)
+    # Map local agent IDs to Foundry agent names
     FOUNDRY_AGENT_NAMES = {
         "HealthDataAnalysisAgent": "health_data_analysis",
-        "PolicyRiskAgent": "policy_risk_analysis",  # Added with function tools
-        "BusinessRulesValidationAgent": "business_rules_validation",
+        "PolicyRiskAgent": "policy_risk_analysis",
         "CommunicationAgent": "communication",
     }
     
@@ -640,7 +638,6 @@ class OrchestratorAgent:
     AGENT_DISPLAY_NAMES = {
         "HealthDataAnalysisAgent": "Health Data Analysis",
         "PolicyRiskAgent": "Policy Risk Assessment",
-        "BusinessRulesValidationAgent": "Business Rules Validation",
         "CommunicationAgent": "Decision Communication",
     }
     
@@ -673,10 +670,9 @@ class OrchestratorAgent:
             self.logger.info("OrchestratorAgent initialized with local deterministic agents%s", 
                            " (demo mode)" if use_demo else "")
         
-        # Initialize local agents (4-agent workflow)
+        # Initialize local agents (2-agent workflow + communication)
         self._health_data_agent = HealthDataAnalysisAgent()
         self._policy_risk_agent = PolicyRiskAgent()
-        self._business_rules_agent = BusinessRulesValidationAgent()
         self._communication_agent = CommunicationAgent()
     
     async def _get_foundry_invoker(self):
@@ -780,28 +776,30 @@ class OrchestratorAgent:
                 except Exception as e:
                     self.logger.warning(f"Evaluation failed for HealthDataAnalysisAgent: {e}")
             
-            # STEP 2: BusinessRulesValidationAgent (MANDATORY) 
-            # Now receives health analysis directly and handles risk + rules
-            business_output = await self._execute_business_rules_validation(context, patient_profile)
+            # STEP 2: PolicyRiskAgent (MANDATORY) 
+            # Applies JSON policies to determine risk level, premium adjustment, and final decision
+            policy_risk_output = await self._execute_policy_risk(context, policy_rules)
             
             # EVALUATION: Run after agent completes (non-blocking)
             if is_evaluations_enabled():
                 try:
-                    business_eval = await evaluator.evaluate_agent(
-                        agent_id="BusinessRulesValidationAgent",
+                    policy_eval = await evaluator.evaluate_agent(
+                        agent_id="PolicyRiskAgent",
                         agent_input={
                             "rules_context": str(policy_rules.model_dump() if hasattr(policy_rules, 'model_dump') else policy_rules),
                             "policy_rules": str(policy_rules.model_dump() if hasattr(policy_rules, 'model_dump') else policy_rules),
                         },
                         agent_output={
-                            "rationale": business_output.rationale if hasattr(business_output, 'rationale') else str(business_output),
-                            "approved": business_output.approved if hasattr(business_output, 'approved') else None,
+                            "rationale": policy_risk_output.rationale if hasattr(policy_risk_output, 'rationale') else str(policy_risk_output),
+                            "approved": policy_risk_output.approved if hasattr(policy_risk_output, 'approved') else None,
+                            "risk_level": policy_risk_output.risk_level.value if hasattr(policy_risk_output, 'risk_level') else None,
+                            "decision": policy_risk_output.decision if hasattr(policy_risk_output, 'decision') else None,
                         },
                         context=str(policy_rules.model_dump() if hasattr(policy_rules, 'model_dump') else policy_rules),
                     )
-                    context.store_evaluation("BusinessRulesValidationAgent", business_eval)
+                    context.store_evaluation("PolicyRiskAgent", policy_eval)
                 except Exception as e:
-                    self.logger.warning(f"Evaluation failed for BusinessRulesValidationAgent: {e}")
+                    self.logger.warning(f"Evaluation failed for PolicyRiskAgent: {e}")
             
             # STEP 3: CommunicationAgent (MANDATORY)
             comm_output = await self._execute_communication(context, patient_profile)
@@ -989,20 +987,13 @@ class OrchestratorAgent:
             (
                 "PolicyRiskAgent",
                 2,
-                "Translating health indicators into risk categories",
-                ["policy-rule-engine", "risk-classifier"],
+                "Applying underwriting policies and determining decision",
+                ["policy-rule-engine", "risk-classifier", "premium-calculator"],
                 lambda: self._execute_policy_risk(context, policy_rules)
             ),
             (
-                "BusinessRulesValidationAgent", 
-                3, 
-                "Validating against underwriting rules and calculating premium",
-                ["rule-engine", "premium-calculator"],
-                lambda: self._execute_business_rules_validation(context, patient_profile)
-            ),
-            (
                 "CommunicationAgent", 
-                4, 
+                3, 
                 "Generating decision communications",
                 ["message-generator", "tone-analyzer"],
                 lambda: self._execute_communication(context, patient_profile)
@@ -1321,13 +1312,11 @@ class OrchestratorAgent:
             high_risk = sum(1 for ri in hda_out.risk_indicators if ri.risk_level.value in ['high', 'very_high'])
             return f"Identified {len(hda_out.risk_indicators)} risk indicators ({high_risk} high-risk)"
         
-        elif agent_id == "BusinessRulesValidationAgent":
-            from app.agents.business_rules_validation import BusinessRulesValidationOutput
-            brv_out: BusinessRulesValidationOutput = output
-            risk_level = context._outputs.get("_risk_level", "moderate")
-            adj_pct = context._outputs.get("_premium_adjustment_pct", 0)
-            status = "Approved" if brv_out.approved else "Declined"
-            return f"{status} - {risk_level.title()} risk, {adj_pct:+.0f}% premium adjustment"
+        elif agent_id == "PolicyRiskAgent":
+            pr_out: PolicyRiskOutput = output
+            decision = pr_out.decision if hasattr(pr_out, 'decision') else "approved"
+            adj_pct = pr_out.premium_adjustment_recommendation.adjustment_percentage if pr_out else 0
+            return f"Decision: {decision.replace('_', ' ').title()}, Risk: {pr_out.risk_level.value}, {adj_pct:+.0f}% adjustment"
         
         elif agent_id == "CommunicationAgent":
             from app.agents.communication import CommunicationOutput
@@ -1663,7 +1652,7 @@ Return JSON:
             # Format policies for prompt (summary of key policies)
             policies_summary = self._format_policies_for_prompt(underwriting_policies)
             
-            prompt = f"""You are an expert insurance underwriter. Translate health risk indicators into insurance risk categories.
+            prompt = f"""You are an expert insurance underwriter. Evaluate health risk indicators against the underwriting policy manual to make a final underwriting decision.
 
 Use your tools to evaluate the applicant:
 1. Call evaluate_policy_rules with the applicant details and risk level
@@ -1683,17 +1672,25 @@ Use your tools to evaluate the applicant:
 1. Use evaluate_policy_rules to check age limits, coverage limits, and pre-existing conditions
 2. For each medical condition, use lookup_underwriting_guidelines to get official guidance
 3. Use calculate_risk_score to determine the final risk class and premium multiplier
+4. Make a final DECISION based on:
+   - risk_level "decline" → decision = "declined"
+   - premium_adjustment_percentage > 100% → decision = "referred" (needs manual review)
+   - premium_adjustment_percentage > 0% → decision = "approved_with_adjustment"
+   - otherwise → decision = "approved"
 
 Return your final assessment as JSON:
 {{
-  "risk_level": "low" | "moderate" | "high" | "very_high",
+  "risk_level": "low" | "moderate" | "high" | "very_high" | "decline",
   "risk_delta_score": <integer 0-100>,
   "premium_adjustment_percentage": <number>,
+  "approved": true | false,
+  "decision": "approved" | "approved_with_adjustment" | "declined" | "referred",
+  "referral_required": true | false,
   "triggered_rules": ["policy_id-criteria_id", ...],
   "rule_evaluations": [
     {{"indicator": "...", "policy_id": "...", "criteria_id": "...", "action": "...", "contribution": "+X%"}}
   ],
-  "rationale": "2-3 sentence explanation of how risk level was determined"
+  "rationale": "2-3 sentence explanation citing the specific policies that led to this decision"
 }}"""
 
             # Try Foundry agent first if available
@@ -1758,6 +1755,23 @@ Return your final assessment as JSON:
                 adjustment_pct = 25.0
             adjusted_premium = base_premium * (1 + adjustment_pct / 100)
             
+            # Parse decision fields
+            approved = parsed.get("approved", risk_level != RiskLevel.DECLINE)
+            decision = parsed.get("decision", "approved")
+            if not decision or decision not in ["approved", "approved_with_adjustment", "declined", "referred"]:
+                # Derive decision from risk level and adjustment
+                if risk_level == RiskLevel.DECLINE:
+                    decision = "declined"
+                    approved = False
+                elif adjustment_pct > 100:
+                    decision = "referred"
+                elif adjustment_pct > 0:
+                    decision = "approved_with_adjustment"
+                else:
+                    decision = "approved"
+            referral_required = parsed.get("referral_required", decision == "referred")
+            rationale = parsed.get("rationale", f"Risk level {risk_level.value} based on policy evaluation")
+            
             output = PolicyRiskOutput(
                 agent_id="PolicyRiskAgent",
                 risk_level=risk_level,
@@ -1775,8 +1789,22 @@ Return your final assessment as JSON:
                     if isinstance(eval_item, dict) else str(eval_item)
                     for eval_item in parsed.get("rule_evaluations", [])
                 ] or [f"AI analyzed {len(hda_output.risk_indicators)} risk indicators against policy manual"],
+                approved=approved,
+                decision=decision,
+                rationale=rationale,
+                referral_required=referral_required,
                 execution_time_ms=execution_time_ms,
             )
+            
+            # Store decision values in context for CommunicationAgent
+            context._outputs["_risk_level"] = risk_level.value
+            context._outputs["_premium_adjustment_pct"] = adjustment_pct
+            context._outputs["_base_premium"] = base_premium
+            context._outputs["_adjusted_premium"] = adjusted_premium
+            context._outputs["_triggered_rules"] = parsed.get("triggered_rules", [])
+            context._outputs["_referral_required"] = referral_required
+            context._outputs["_approved"] = approved
+            context._outputs["_decision"] = decision
             
             # Track actual tools used
             tools_used_for_tracking = tools_used_from_foundry if tools_used_from_foundry else [
@@ -1847,265 +1875,6 @@ Criteria:"""
             formatted.append(policy_text)
         
         return "\n".join(formatted)
-    
-    async def _execute_business_rules_validation(
-        self,
-        context: ExecutionContext,
-        patient_profile: PatientProfile,
-    ) -> BusinessRulesValidationOutput:
-        """Step 2: Execute BusinessRulesValidationAgent.
-        
-        In the simplified 3-agent workflow, this agent now handles:
-        - Risk level determination (previously PolicyRiskAgent)
-        - Premium adjustment calculation
-        - Business rules compliance validation
-        """
-        self.logger.info("Step 3: Executing BusinessRulesValidationAgent%s",
-                        " (via Azure AI Foundry)" if self._use_foundry else " (local)")
-        
-        # Get outputs from previous steps
-        hda_output: HealthDataAnalysisOutput = context.get_output("HealthDataAnalysisAgent")
-        pr_output: PolicyRiskOutput = context.get_output("PolicyRiskAgent")
-        
-        # Format risk indicators for prompt
-        risk_indicators_text = "\n".join([
-            f"- {ri.indicator_name}: {ri.risk_level.value} risk (confidence: {ri.confidence:.0%}) - {ri.explanation}"
-            for ri in hda_output.risk_indicators
-        ])
-        
-        # Get preliminary risk assessment from PolicyRiskAgent
-        preliminary_risk_level = pr_output.risk_level.value if pr_output else "moderate"
-        preliminary_adjustment = pr_output.premium_adjustment_recommendation.adjustment_percentage if pr_output else 0
-        triggered_policy_rules = pr_output.triggered_rules if pr_output else []
-        
-        # Calculate base premium (simplified calculation)
-        base_premium = patient_profile.coverage_amount_requested * 0.002  # 0.2% base rate
-        
-        if self._use_foundry:
-            # Import knowledge retrieval service for logging
-            from app.agents.knowledge_retrieval import get_knowledge_service
-            knowledge_service = get_knowledge_service()
-            
-            # Log retrieval start
-            knowledge_service.log_retrieval_start(
-                query=f"premium adjustment rules for risk level {preliminary_risk_level}",
-                context={
-                    "risk_delta_score": preliminary_adjustment,
-                    "risk_level": preliminary_risk_level,
-                }
-            )
-            
-            # Build prompt that REQUIRES knowledge retrieval (no hardcoded rules)
-            prompt = f"""You are an Underwriting Rules Specialist with access to the official business rules document.
-
-## CRITICAL REQUIREMENT: KNOWLEDGE RETRIEVAL
-You MUST use the file_search tool to retrieve rules from the "health_underwriting_business_rules" document.
-DO NOT guess thresholds. DO NOT infer adjustments. DO NOT use default values.
-Every rule you apply MUST be cited with the specific section from the document.
-
-If file_search returns NO relevant rules: Set approved=false and explain the retrieval failure.
-
-## Preliminary Risk Assessment (from PolicyRiskAgent):
-- Risk Level: {preliminary_risk_level}
-- Recommended Adjustment: +{preliminary_adjustment}%
-- Policy Rules Triggered: {', '.join(triggered_policy_rules) if triggered_policy_rules else 'None'}
-
-## Risk Indicators from Health Analysis:
-{risk_indicators_text}
-
-## Health Analysis Summary:
-{hda_output.summary}
-
-## Applicant Profile:
-- Age: {patient_profile.demographics.age}
-- Biological Sex: {patient_profile.demographics.biological_sex}
-- Smoker Status: {patient_profile.medical_history.smoker_status}
-- BMI: {patient_profile.medical_history.bmi}
-- Has Hypertension: {patient_profile.medical_history.has_hypertension}
-- Has Diabetes: {patient_profile.medical_history.has_diabetes}
-- Policy Type: {patient_profile.policy_type_requested}
-- Coverage Amount: ${patient_profile.coverage_amount_requested:,.2f}
-- Base Premium: ${base_premium:.2f}
-
-## YOUR TASK:
-1. FIRST: Use file_search to find rules for:
-   - Premium adjustment thresholds based on risk factors
-   - Smoker surcharge rules
-   - BMI-related adjustments
-   - Chronic condition adjustments
-   - Referral trigger conditions
-
-2. THEN: Apply ONLY the rules you retrieved from the document
-   - Cite each rule with "Per Section X.Y: ..."
-   - If a rule is not in the document, do not apply it
-
-3. FINALLY: Return your analysis as JSON with:
-{{
-  "approved": true/false,
-  "risk_level": "low" | "moderate" | "high" | "very_high" | "decline",
-  "premium_adjustment_percentage": <from document rules>,
-  "base_premium_annual": {base_premium:.2f},
-  "adjusted_premium_annual": <calculated>,
-  "rationale": "Per Section X.Y: [rule]. Per Section X.Z: [rule]...",
-  "compliance_checks": ["Section X.Y check: passed/failed"],
-  "violations_found": [],
-  "referral_required": true/false,
-  "referral_reason": "<from document if applicable>",
-  "triggered_rules": ["Section X.Y - Rule Name"],
-  "recommendations": [],
-  "retrieved_chunks_count": <number of chunks from file_search>,
-  "rule_sections_cited": ["Section X.Y", "Section X.Z"]
-}}
-
-IMPORTANT: If retrieved_chunks_count is 0, set approved=false with rationale explaining retrieval failure."""
-
-            result = await self._invoke_foundry_agent(
-                "BusinessRulesValidationAgent", 
-                prompt, 
-                {
-                    "risk_indicators": [ri.model_dump() for ri in hda_output.risk_indicators],
-                    "patient_profile": patient_profile.model_dump(mode='json'),
-                    "base_premium": base_premium,
-                },
-                execution_context=context,
-                step_number=4,
-            )
-            parsed = result.get("parsed") or {}
-            
-            # Log retrieval results
-            chunks_retrieved = parsed.get("retrieved_chunks_count", 0)
-            rule_sections = parsed.get("rule_sections_cited", [])
-            triggered_rules = parsed.get("triggered_rules", [])
-            
-            if chunks_retrieved > 0:
-                self.logger.info(
-                    "RULE RETRIEVAL SUCCESS: %d chunks retrieved",
-                    chunks_retrieved
-                )
-                for section in rule_sections[:5]:
-                    self.logger.info("RULE APPLIED: %s", section)
-            else:
-                self.logger.error(
-                    "RULE RETRIEVAL FAILED: No chunks retrieved from knowledge source"
-                )
-            
-            # Validate rule application
-            knowledge_service.validate_rule_application(
-                applied_rules=triggered_rules,
-                adjustment_percentage=float(parsed.get("premium_adjustment_percentage", 0)),
-                risk_level=parsed.get("risk_level", "unknown")
-            )
-            
-            # Parse Foundry response
-            approved = parsed.get("approved", True)
-            risk_level_str = parsed.get("risk_level", "moderate").lower()
-            adjustment_pct = float(parsed.get("premium_adjustment_percentage", 0))
-            adjusted_premium = parsed.get("adjusted_premium_annual") or (base_premium * (1 + adjustment_pct / 100))
-            
-            # Check for retrieval failure - reject if no rules retrieved
-            if chunks_retrieved == 0 and adjustment_pct != 0:
-                self.logger.warning(
-                    "Rejecting adjustment of %.0f%% due to retrieval failure",
-                    adjustment_pct
-                )
-                approved = False
-                parsed["violations_found"] = parsed.get("violations_found", []) + [
-                    "RETRIEVAL_FAILURE: No rules retrieved from knowledge source to justify adjustment"
-                ]
-            
-            # Ensure compliance checks is a list of strings
-            compliance_checks = parsed.get("compliance_checks", [])
-            if isinstance(compliance_checks, list):
-                compliance_checks = [str(c) for c in compliance_checks]
-            else:
-                compliance_checks = [str(compliance_checks)]
-            
-            output = BusinessRulesValidationOutput(
-                agent_id="BusinessRulesValidationAgent",
-                approved=approved,
-                rationale=parsed.get("rationale", "Validated by Azure AI Foundry"),
-                compliance_checks=compliance_checks,
-                violations_found=parsed.get("violations_found", []),
-                recommendations=parsed.get("recommendations", []),
-                execution_time_ms=result.get("execution_time_ms", 0),
-            )
-            
-            # Store additional calculated values in context for communication agent
-            context._outputs["_risk_level"] = risk_level_str
-            context._outputs["_premium_adjustment_pct"] = adjustment_pct
-            context._outputs["_base_premium"] = base_premium
-            context._outputs["_adjusted_premium"] = adjusted_premium
-            context._outputs["_triggered_rules"] = triggered_rules
-            context._outputs["_rule_sections_cited"] = rule_sections
-            context._outputs["_retrieved_chunks_count"] = chunks_retrieved
-            context._outputs["_referral_required"] = parsed.get("referral_required", False)
-            
-        else:
-            # Local deterministic agent - calculate risk from indicators
-            # Count risk levels
-            high_count = sum(1 for ri in hda_output.risk_indicators if ri.risk_level in [RiskLevel.HIGH, RiskLevel.VERY_HIGH])
-            moderate_count = sum(1 for ri in hda_output.risk_indicators if ri.risk_level == RiskLevel.MODERATE)
-            
-            # Determine risk level and adjustment
-            if high_count >= 2:
-                risk_level_str = "high"
-                adjustment_pct = 35.0
-            elif high_count >= 1 or moderate_count >= 3:
-                risk_level_str = "moderate"
-                adjustment_pct = 15.0
-            else:
-                risk_level_str = "low"
-                adjustment_pct = 0.0
-            
-            # Add smoker surcharge
-            if patient_profile.medical_history.smoker_status == "current":
-                adjustment_pct += 25.0
-            elif patient_profile.medical_history.smoker_status == "former":
-                adjustment_pct += 10.0
-            
-            adjusted_premium = base_premium * (1 + adjustment_pct / 100)
-            
-            output = BusinessRulesValidationOutput(
-                agent_id="BusinessRulesValidationAgent",
-                approved=True,
-                rationale=f"Risk level {risk_level_str} based on {len(hda_output.risk_indicators)} risk indicators",
-                compliance_checks=[
-                    f"Premium adjustment within limits: {'passed' if adjustment_pct <= 100 else 'failed'}",
-                    "Age-based rules: passed",
-                    "Regulatory compliance: passed",
-                ],
-                violations_found=[],
-                recommendations=[],
-                execution_time_ms=0,
-            )
-            
-            # Store calculated values
-            context._outputs["_risk_level"] = risk_level_str
-            context._outputs["_premium_adjustment_pct"] = adjustment_pct
-            context._outputs["_base_premium"] = base_premium
-            context._outputs["_adjusted_premium"] = adjusted_premium
-            context._outputs["_triggered_rules"] = []
-            context._outputs["_referral_required"] = adjustment_pct > 50
-        
-        # Capture actual inputs for transparency
-        actual_inputs = {
-            "risk_indicators_count": len(hda_output.risk_indicators),
-            "preliminary_risk_level": preliminary_risk_level,
-            "preliminary_adjustment": preliminary_adjustment,
-            "patient_age": patient_profile.demographics.age,
-            "smoker_status": patient_profile.medical_history.smoker_status,
-            "base_premium": base_premium,
-        }
-        # Get actual tools used from Foundry or use defaults
-        tools_used = result.get("tools_used", ["validate_coverage_eligibility", "evaluate_policy_rules"]) if self._use_foundry else ["local-rules-engine"]
-        context.store_output(
-            "BusinessRulesValidationAgent", 
-            output, 
-            step_number=3,
-            actual_inputs=actual_inputs,
-            tools_invoked=tools_used
-        )
-        return output
     
     async def _execute_bias_fairness(
         self,
@@ -2213,7 +1982,7 @@ Provide JSON:
     ) -> CommunicationOutput:
         """Step 3: Execute CommunicationAgent.
         
-        In the simplified 3-agent workflow, this agent generates:
+        In the simplified 2-agent workflow, this agent generates:
         - Internal underwriter message with technical details
         - External customer message with appropriate tone
         """
@@ -2222,22 +1991,25 @@ Provide JSON:
         
         # Get outputs from previous steps
         hda_output: HealthDataAnalysisOutput = context.get_output("HealthDataAnalysisAgent")
-        brv_output: BusinessRulesValidationOutput = context.get_output("BusinessRulesValidationAgent")
+        pr_output: PolicyRiskOutput = context.get_output("PolicyRiskAgent")
         
-        # Get calculated values from business rules step
-        risk_level_str = context._outputs.get("_risk_level", "moderate")
-        premium_adjustment_pct = context._outputs.get("_premium_adjustment_pct", 0)
-        base_premium = context._outputs.get("_base_premium", 1000)
-        adjusted_premium = context._outputs.get("_adjusted_premium", 1000)
-        triggered_rules = context._outputs.get("_triggered_rules", [])
-        referral_required = context._outputs.get("_referral_required", False)
+        # Get calculated values from PolicyRiskAgent step
+        risk_level_str = context._outputs.get("_risk_level", pr_output.risk_level.value if pr_output else "moderate")
+        premium_adjustment_pct = context._outputs.get("_premium_adjustment_pct", pr_output.premium_adjustment_recommendation.adjustment_percentage if pr_output else 0)
+        base_premium = context._outputs.get("_base_premium", pr_output.premium_adjustment_recommendation.base_premium_annual if pr_output else 1000)
+        adjusted_premium = context._outputs.get("_adjusted_premium", pr_output.premium_adjustment_recommendation.adjusted_premium_annual if pr_output else 1000)
+        triggered_rules = context._outputs.get("_triggered_rules", pr_output.triggered_rules if pr_output else [])
+        referral_required = context._outputs.get("_referral_required", pr_output.referral_required if pr_output else False)
         
-        # Determine status based on agent conclusions
-        if not brv_output.approved:
+        # Determine status based on PolicyRiskAgent decision
+        decision = context._outputs.get("_decision", pr_output.decision if pr_output else "approved")
+        approved = context._outputs.get("_approved", pr_output.approved if pr_output else True)
+        
+        if decision == "declined" or not approved:
             status = DecisionStatus.DECLINED
-        elif referral_required:
+        elif decision == "referred" or referral_required:
             status = DecisionStatus.REFERRED
-        elif premium_adjustment_pct > 0:
+        elif decision == "approved_with_adjustment" or premium_adjustment_pct > 0:
             status = DecisionStatus.APPROVED_WITH_ADJUSTMENT
         else:
             status = DecisionStatus.APPROVED
@@ -2257,7 +2029,7 @@ Provide JSON:
 - Base Premium: ${base_premium:.2f}
 - Premium Adjustment: {premium_adjustment_pct}%
 - Adjusted Annual Premium: ${adjusted_premium:.2f}
-- Approved: {brv_output.approved}
+- Approved: {approved}
 - Referral Required: {referral_required}
 
 ## Policy Details:
@@ -2268,15 +2040,15 @@ Provide JSON:
 {chr(10).join('- ' + rf for rf in key_risk_factors) if key_risk_factors else '- No significant risk factors identified'}
 
 ## Decision Rationale:
-{brv_output.rationale}
+{pr_output.rationale}
 
-## Compliance Checks:
-{chr(10).join('- ' + c for c in brv_output.compliance_checks)}
+## Triggered Policy Rules:
+{chr(10).join('- ' + r for r in triggered_rules) if triggered_rules else '- Standard rates apply'}
 
 Generate two messages:
 
 1. **Underwriter Message** (Internal): Include all technical details, risk factors, 
-   premium calculations, and compliance notes. This is for insurance professionals.
+   premium calculations, and policy rule citations. This is for insurance professionals.
 
 2. **Customer Message** (External): A professional, empathetic letter to the applicant.
    - For APPROVED: Congratulate and explain coverage
@@ -2302,7 +2074,7 @@ Return JSON:
                     "risk_level": risk_level_str,
                     "premium_adjustment_pct": premium_adjustment_pct,
                     "adjusted_premium": adjusted_premium,
-                    "rationale": brv_output.rationale,
+                    "rationale": pr_output.rationale,
                     "key_risk_factors": key_risk_factors,
                     "patient_profile": patient_profile.model_dump(mode='json'),
                 },
@@ -2315,7 +2087,7 @@ Return JSON:
                 agent_id="CommunicationAgent",
                 underwriter_message=parsed.get("underwriter_message", 
                     f"Underwriting decision: {status.value}. Risk level: {risk_level_str}. "
-                    f"Premium adjustment: {premium_adjustment_pct}%. {brv_output.rationale}"),
+                    f"Premium adjustment: {premium_adjustment_pct}%. {pr_output.rationale}"),
                 customer_message=parsed.get("customer_message", 
                     f"Dear Applicant, your application has been {status.value.lower().replace('_', ' ')}. "
                     f"Please contact us if you have any questions."),
@@ -2343,7 +2115,7 @@ Return JSON:
             risk_level_enum = risk_level_map.get(risk_level_str, RiskLevel.MODERATE)
             
             # Build UnderwritingDecision
-            decision = UnderwritingDecision(
+            underwriting_decision = UnderwritingDecision(
                 decision_id=f"DEC-{context.workflow_id[:8]}",
                 patient_id=context.patient_id,
                 status=status,
@@ -2352,19 +2124,19 @@ Return JSON:
                     base_premium_annual=base_premium,
                     adjustment_percentage=premium_adjustment_pct,
                     adjusted_premium_annual=adjusted_premium,
-                    adjustment_reasons=[brv_output.rationale] if brv_output.rationale else [],
+                    adjustment_reasons=[pr_output.rationale] if pr_output.rationale else [],
                 ),
                 confidence_score=0.8,  # Default confidence
                 data_quality_level=DataQualityLevel.GOOD,
-                decision_rationale=brv_output.rationale,
+                decision_rationale=pr_output.rationale,
                 key_risk_factors=key_risk_factors,
-                regulatory_compliant=brv_output.approved,
+                regulatory_compliant=pr_output.approved,
                 bias_check_passed=True,
             )
             
             # Build proper decision_summary matching DecisionSummary schema
             decision_summary = {
-                "decision": decision.model_dump(mode='json'),
+                "decision": underwriting_decision.model_dump(mode='json'),
                 "patient_name": None,
                 "policy_type": patient_profile.policy_type_requested,
                 "coverage_amount": patient_profile.coverage_amount_requested,
@@ -2378,7 +2150,7 @@ Return JSON:
             "risk_level": context._outputs.get("_risk_level", "unknown"),
             "premium_adjustment_pct": context._outputs.get("_premium_adjustment_pct", 0),
             "adjusted_premium": context._outputs.get("_adjusted_premium", 0),
-            "approved": brv_output.approved if brv_output else True,
+            "approved": pr_output.approved if pr_output else True,
         }
         # Get actual tools used from Foundry or use defaults
         tools_used = result.get("tools_used", ["generate_decision_summary"]) if self._use_foundry else ["local-message-generator"]
@@ -2533,19 +2305,23 @@ Return JSON:
         """
         Build decision summary for communication agent evaluation.
         
-        Summarizes the business rules outcome that the communication 
+        Summarizes the policy risk outcome that the communication 
         agent was asked to communicate.
         """
-        brv_output = context.get_output("BusinessRulesValidationAgent")
+        pr_output = context.get_output("PolicyRiskAgent")
         health_output = context.get_output("HealthDataAnalysisAgent")
         
         summary_parts = []
         
-        if brv_output:
-            if hasattr(brv_output, 'approved'):
-                summary_parts.append(f"Approved: {brv_output.approved}")
-            if hasattr(brv_output, 'rationale'):
-                summary_parts.append(f"Rationale: {brv_output.rationale}")
+        if pr_output:
+            if hasattr(pr_output, 'approved'):
+                summary_parts.append(f"Approved: {pr_output.approved}")
+            if hasattr(pr_output, 'decision'):
+                summary_parts.append(f"Decision: {pr_output.decision}")
+            if hasattr(pr_output, 'rationale'):
+                summary_parts.append(f"Rationale: {pr_output.rationale}")
+            if hasattr(pr_output, 'risk_level'):
+                summary_parts.append(f"Risk Level: {pr_output.risk_level.value}")
         
         if health_output:
             if hasattr(health_output, 'risk_indicators'):
@@ -2618,17 +2394,10 @@ Return JSON:
                 "policy_rules": policy_rules_data,
             }
         
-        elif agent_id == "BusinessRulesValidationAgent":
-            health_output = context.get_output("HealthDataAnalysisAgent")
-            return {
-                "health_analysis": safe_dump(health_output),
-                "patient_profile": safe_dump(patient_profile),
-            }
-        
         elif agent_id == "CommunicationAgent":
-            brv_output = context.get_output("BusinessRulesValidationAgent")
+            pr_output = context.get_output("PolicyRiskAgent")
             return {
-                "business_decision": safe_dump(brv_output),
+                "policy_decision": safe_dump(pr_output),
                 "decision_summary": self._build_decision_summary(context),
             }
         
@@ -2683,34 +2452,35 @@ Return JSON:
         """
         Produce final underwriting decision.
         
-        SIMPLIFIED 3-AGENT WORKFLOW:
-        Uses outputs from HealthDataAnalysis, BusinessRulesValidation, and Communication.
+        SIMPLIFIED 2-AGENT WORKFLOW + COMMUNICATION:
+        Uses outputs from HealthDataAnalysis, PolicyRisk, and Communication.
         
         IMPORTANT: This method SUMMARIZES agent outputs.
         It does NOT alter or override any agent conclusions.
         """
         # Retrieve agent outputs (READ-ONLY - DO NOT MODIFY)
-        brv_output: BusinessRulesValidationOutput = context.get_output("BusinessRulesValidationAgent")
+        pr_output: PolicyRiskOutput = context.get_output("PolicyRiskAgent")
         comm_output: CommunicationOutput = context.get_output("CommunicationAgent")
         
-        # Get calculated values from business rules step
-        risk_level_str = context._outputs.get("_risk_level", "moderate")
-        premium_adjustment_pct = context._outputs.get("_premium_adjustment_pct", 0)
-        adjusted_premium = context._outputs.get("_adjusted_premium", 1000)
-        referral_required = context._outputs.get("_referral_required", False)
+        # Get calculated values from PolicyRiskAgent step
+        risk_level_str = context._outputs.get("_risk_level", pr_output.risk_level.value if pr_output else "moderate")
+        premium_adjustment_pct = context._outputs.get("_premium_adjustment_pct", pr_output.premium_adjustment_recommendation.adjustment_percentage if pr_output else 0)
+        adjusted_premium = context._outputs.get("_adjusted_premium", pr_output.premium_adjustment_recommendation.adjusted_premium_annual if pr_output else 1000)
+        referral_required = context._outputs.get("_referral_required", pr_output.referral_required if pr_output else False)
         
         # Determine approval status based on agent conclusions (NO OVERRIDES)
-        approved = brv_output.approved
+        approved = pr_output.approved if pr_output else True
+        decision = pr_output.decision if pr_output else "approved"
         
-        # Map risk level to decision status (DIRECT MAPPING - NO REINTERPRETATION)
-        if not approved:
+        # Map decision to status (DIRECT MAPPING - NO REINTERPRETATION)
+        if decision == "declined" or not approved:
             status = DecisionStatus.DECLINED
-        elif referral_required:
+        elif decision == "referred" or referral_required:
             status = DecisionStatus.REFERRED
         elif risk_level_str == "decline":
             status = DecisionStatus.DECLINED
             approved = False
-        elif premium_adjustment_pct > 0:
+        elif decision == "approved_with_adjustment" or premium_adjustment_pct > 0:
             status = DecisionStatus.APPROVED_WITH_ADJUSTMENT
         else:
             status = DecisionStatus.APPROVED
@@ -2733,7 +2503,7 @@ Return JSON:
             approved=approved,
             premium_adjustment_pct=premium_adjustment_pct,
             adjusted_premium_annual=adjusted_premium,
-            business_rules_approved=brv_output.approved,
+            business_rules_approved=approved,  # Now from PolicyRiskAgent
             bias_check_passed=True,  # Simplified workflow - no bias check agent
             underwriter_message=comm_output.underwriter_message,
             customer_message=comm_output.customer_message,
@@ -2775,15 +2545,15 @@ Return JSON:
         """
         Generate human-readable explanation of the decision.
         
-        SIMPLIFIED 3-AGENT WORKFLOW:
+        SIMPLIFIED 2-AGENT WORKFLOW:
         This SUMMARIZES the agent outputs without altering conclusions.
         """
         hda_output: HealthDataAnalysisOutput = context.get_output("HealthDataAnalysisAgent")
-        brv_output: BusinessRulesValidationOutput = context.get_output("BusinessRulesValidationAgent")
+        pr_output: PolicyRiskOutput = context.get_output("PolicyRiskAgent")
         
         # Get calculated values
         base_premium = context._outputs.get("_base_premium", 1000)
-        triggered_rules = context._outputs.get("_triggered_rules", [])
+        triggered_rules = context._outputs.get("_triggered_rules", pr_output.triggered_rules if pr_output else [])
         
         # Count risk indicators by level
         risk_counts = {"low": 0, "moderate": 0, "high": 0, "very_high": 0}
@@ -2805,9 +2575,9 @@ Return JSON:
             f"  - Risk indicators identified: {len(hda_output.risk_indicators)}",
             f"    (Low: {risk_counts['low']}, Moderate: {risk_counts['moderate']}, "
             f"High: {risk_counts['high']}, Very High: {risk_counts['very_high']})",
-            f"  - Business rules: {'Passed' if brv_output.approved else 'Failed'}",
+            f"  - Policy rules evaluation: {'Approved' if pr_output.approved else 'Declined'}",
             "",
-            f"Rationale: {brv_output.rationale}",
+            f"Rationale: {pr_output.rationale}",
         ]
         
         if triggered_rules:
@@ -2815,12 +2585,6 @@ Return JSON:
             lines.append("Triggered Rules:")
             for rule in triggered_rules[:5]:  # Limit to 5 rules
                 lines.append(f"  - {rule}")
-        
-        if brv_output.violations_found:
-            lines.append("")
-            lines.append("Compliance Issues:")
-            for violation in brv_output.violations_found:
-                lines.append(f"  - {violation}")
         
         return "\n".join(lines)
     

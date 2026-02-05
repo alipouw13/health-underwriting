@@ -59,14 +59,11 @@ class TestExecutionOrder:
         """Verify agents execute in the exact required order."""
         output = await orchestrator.run({"patient_id": "PAT-HEALTHY-001"})
         
+        # Simplified 2-agent + communication workflow
         expected_order = [
             "HealthDataAnalysisAgent",
-            "DataQualityConfidenceAgent",
             "PolicyRiskAgent",
-            "BusinessRulesValidationAgent",
-            "BiasAndFairnessAgent",
             "CommunicationAgent",
-            "AuditAndTraceAgent",
         ]
         
         actual_order = [record.agent_id for record in output.execution_records]
@@ -78,7 +75,7 @@ class TestExecutionOrder:
         output = await orchestrator.run({"patient_id": "PAT-HEALTHY-001"})
         
         step_numbers = [record.step_number for record in output.execution_records]
-        assert step_numbers == [1, 2, 3, 4, 5, 6, 7]
+        assert step_numbers == [1, 2, 3]  # 3 agents in simplified workflow
     
     @pytest.mark.asyncio
     async def test_no_agents_skipped(self, orchestrator):
@@ -90,14 +87,11 @@ class TestExecutionOrder:
             output = await orchestrator.run({"patient_id": patient_id})
             agent_ids = {record.agent_id for record in output.execution_records}
             
+            # Simplified 2-agent + communication workflow
             expected_agents = {
                 "HealthDataAnalysisAgent",
-                "DataQualityConfidenceAgent",
                 "PolicyRiskAgent",
-                "BusinessRulesValidationAgent",
-                "BiasAndFairnessAgent",
                 "CommunicationAgent",
-                "AuditAndTraceAgent",
             }
             
             assert agent_ids == expected_agents, f"Missing agents for {patient_id}"

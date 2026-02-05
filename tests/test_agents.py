@@ -57,11 +57,6 @@ from app.agents.policy_risk import (
     PolicyRiskInput,
     PolicyRiskOutput,
 )
-from app.agents.business_rules_validation import (
-    BusinessRulesValidationAgent,
-    BusinessRulesValidationInput,
-    BusinessRulesValidationOutput,
-)
 from app.agents.data_quality_confidence import (
     DataQualityConfidenceAgent,
     DataQualityConfidenceInput,
@@ -152,12 +147,6 @@ def health_data_analysis_agent():
 def policy_risk_agent():
     """Fixture for PolicyRiskAgent."""
     return PolicyRiskAgent()
-
-
-@pytest.fixture
-def business_rules_agent():
-    """Fixture for BusinessRulesValidationAgent."""
-    return BusinessRulesValidationAgent()
 
 
 @pytest.fixture
@@ -455,87 +444,6 @@ class TestPolicyRiskAgent:
 # =============================================================================
 # TEST: BUSINESS RULES VALIDATION AGENT
 # =============================================================================
-
-class TestBusinessRulesValidationAgent:
-    """Tests for BusinessRulesValidationAgent."""
-    
-    def test_agent_attributes(self, business_rules_agent):
-        """Test agent has correct attributes from YAML."""
-        agent = business_rules_agent
-        
-        assert agent.agent_id == "BusinessRulesValidationAgent"
-        assert "underwriting-rules-mcp" in agent.tools_used
-        assert "compliance" in agent.evaluation_criteria
-        assert "rule_violation" in agent.failure_modes
-    
-    @pytest.mark.asyncio
-    async def test_valid_adjustment_approved(self, business_rules_agent):
-        """Test that valid premium adjustment is approved."""
-        agent = business_rules_agent
-        
-        premium_adjustment = PremiumAdjustment(
-            base_premium_annual=1200.00,
-            adjustment_percentage=15.0,
-            adjusted_premium_annual=1380.00,
-            adjustment_factors={"RULE-HR-001": 15.0},
-            triggered_rule_ids=["RULE-HR-001"],
-        )
-        
-        input_data = {
-            "premium_adjustment_recommendation": premium_adjustment.model_dump(),
-        }
-        
-        output = await agent.run(input_data)
-        
-        assert isinstance(output, BusinessRulesValidationOutput)
-        assert output.approved is True
-        assert len(output.violations_found) == 0
-    
-    @pytest.mark.asyncio
-    async def test_excessive_adjustment_rejected(self, business_rules_agent):
-        """Test that excessive premium adjustment is rejected."""
-        agent = business_rules_agent
-        
-        premium_adjustment = PremiumAdjustment(
-            base_premium_annual=1200.00,
-            adjustment_percentage=200.0,  # Exceeds 150% limit
-            adjusted_premium_annual=3600.00,
-            adjustment_factors={"RULE-001": 200.0},
-            triggered_rule_ids=["RULE-001"],
-        )
-        
-        input_data = {
-            "premium_adjustment_recommendation": premium_adjustment.model_dump(),
-        }
-        
-        output = await agent.run(input_data)
-        
-        assert output.approved is False
-        assert len(output.violations_found) > 0
-        assert any("exceeds maximum" in v.lower() for v in output.violations_found)
-    
-    @pytest.mark.asyncio
-    async def test_calculation_inconsistency_detected(self, business_rules_agent):
-        """Test that calculation inconsistencies are detected."""
-        agent = business_rules_agent
-        
-        premium_adjustment = PremiumAdjustment(
-            base_premium_annual=1200.00,
-            adjustment_percentage=10.0,
-            adjusted_premium_annual=1500.00,  # Should be 1320, not 1500
-            adjustment_factors={"RULE-001": 10.0},
-            triggered_rule_ids=["RULE-001"],
-        )
-        
-        input_data = {
-            "premium_adjustment_recommendation": premium_adjustment.model_dump(),
-        }
-        
-        output = await agent.run(input_data)
-        
-        assert output.approved is False
-        assert any("inconsistent" in v.lower() for v in output.violations_found)
-
 
 # =============================================================================
 # TEST: DATA QUALITY CONFIDENCE AGENT
@@ -896,18 +804,8 @@ class TestAuditAndTraceAgent:
                 execution_time_ms=100.0,
                 success=True,
                 input_summary="risk_indicators, policy_rules",
-                output_summary="risk: MODERATE, adjustment: 15%",
-                key_decisions=["Premium increase 15%"],
-            ),
-            AgentOutputRecord(
-                agent_id="BusinessRulesValidationAgent",
-                execution_id=str(uuid4()),
-                timestamp=now,
-                execution_time_ms=30.0,
-                success=True,
-                input_summary="premium_adjustment",
-                output_summary="approved: True",
-                key_decisions=["Compliance verified"],
+                output_summary="risk: MODERATE, adjustment: 15%, decision: approved_with_adjustment",
+                key_decisions=["Premium increase 15%", "Approved with adjustment"],
             ),
             AgentOutputRecord(
                 agent_id="BiasAndFairnessAgent",
@@ -1019,7 +917,6 @@ class TestAgentIsolation:
         from app.agents import (
             HealthDataAnalysisAgent,
             PolicyRiskAgent,
-            BusinessRulesValidationAgent,
             DataQualityConfidenceAgent,
             BiasAndFairnessAgent,
             CommunicationAgent,
@@ -1029,7 +926,6 @@ class TestAgentIsolation:
         agents = [
             HealthDataAnalysisAgent,
             PolicyRiskAgent,
-            BusinessRulesValidationAgent,
             DataQualityConfidenceAgent,
             BiasAndFairnessAgent,
             CommunicationAgent,
@@ -1055,7 +951,6 @@ class TestAgentIsolation:
         from app.agents import (
             HealthDataAnalysisAgent,
             PolicyRiskAgent,
-            BusinessRulesValidationAgent,
             DataQualityConfidenceAgent,
             BiasAndFairnessAgent,
             CommunicationAgent,
@@ -1074,7 +969,6 @@ class TestAgentIsolation:
         agents = [
             HealthDataAnalysisAgent(),
             PolicyRiskAgent(),
-            BusinessRulesValidationAgent(),
             DataQualityConfidenceAgent(),
             BiasAndFairnessAgent(),
             CommunicationAgent(),
