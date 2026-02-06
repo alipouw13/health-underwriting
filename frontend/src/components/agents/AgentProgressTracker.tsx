@@ -31,7 +31,7 @@ export interface AgentProgressEvent {
 }
 
 // Agent definitions for the 4-agent workflow (with PolicyRiskAgent)
-const AGENT_DEFINITIONS = [
+const ADMIN_AGENT_DEFINITIONS = [
   { 
     id: 'HealthDataAnalysisAgent', 
     name: 'Health Data Analysis', 
@@ -58,11 +58,34 @@ const AGENT_DEFINITIONS = [
   },
 ];
 
+// Agent definitions for Apple Health 3-agent workflow
+const APPLE_HEALTH_AGENT_DEFINITIONS = [
+  { 
+    id: 'HealthDataAnalysisAgent', 
+    name: 'Health Data Analysis', 
+    description: 'Analyzing Apple Health metrics from HealthKit',
+    icon: '🏥'
+  },
+  {
+    id: 'AppleHealthRiskAgent',
+    name: 'Apple Health Risk Assessment',
+    description: 'Calculating HKRS score from wellness data',
+    icon: '🍎'
+  },
+  { 
+    id: 'CommunicationAgent', 
+    name: 'Decision Communication', 
+    description: 'Generating underwriter and customer messages',
+    icon: '💬'
+  },
+];
+
 interface AgentProgressTrackerProps {
   progress: AgentProgressEvent[];
   className?: string;
   compact?: boolean;
   showTitle?: boolean;
+  isAppleHealth?: boolean;
 }
 
 /**
@@ -80,7 +103,11 @@ export default function AgentProgressTracker({
   className,
   compact = false,
   showTitle = true,
+  isAppleHealth = false,
 }: AgentProgressTrackerProps) {
+  // Select the appropriate agent definitions based on workflow type
+  const AGENT_DEFINITIONS = isAppleHealth ? APPLE_HEALTH_AGENT_DEFINITIONS : ADMIN_AGENT_DEFINITIONS;
+
   const getAgentStatus = (agentId: string): AgentProgressEvent | undefined => {
     // Get the latest progress event for this agent
     const events = progress.filter(p => p.agent_id === agentId);

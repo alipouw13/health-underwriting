@@ -35,7 +35,7 @@ function MetricScoreBar({ metric }: MetricScoreBarProps) {
             "font-semibold",
             metric.passed ? "text-emerald-600" : "text-amber-600"
           )}>
-            {metric.score.toFixed(2)}
+            {metric.score?.toFixed(2) ?? 'N/A'}
           </span>
           {metric.passed ? (
             <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
@@ -89,7 +89,7 @@ export function AgentEvaluationCard({ evaluation, agentId, compact = false }: Ag
       <div className="flex items-center gap-2 text-xs">
         <StatusIcon className={cn("w-3.5 h-3.5", config.color)} />
         <span className="font-medium">{displayName}</span>
-        {score !== undefined && (
+        {score != null && (
           <span className={cn(
             "px-1.5 py-0.5 rounded-full font-semibold",
             config.bg, config.color
@@ -123,7 +123,7 @@ export function AgentEvaluationCard({ evaluation, agentId, compact = false }: Ag
               {evaluation.passed ? 'PASSED' : 'NEEDS REVIEW'}
             </span>
           )}
-          {score !== undefined && (
+          {score != null && (
             <div className="flex items-center gap-1 text-sm font-semibold text-slate-700">
               <Star className="w-4 h-4 text-amber-500" />
               {score.toFixed(2)}/5
@@ -193,7 +193,7 @@ export function WorkflowEvaluationSummary({ evaluation }: WorkflowEvaluationSumm
         
         {/* Overall Status */}
         <div className="flex items-center gap-3">
-          {score !== undefined && (
+          {score != null && (
             <div className="text-right">
               <div className="flex items-center gap-1 text-lg font-bold text-indigo-700">
                 <Star className="w-5 h-5 text-amber-500" />

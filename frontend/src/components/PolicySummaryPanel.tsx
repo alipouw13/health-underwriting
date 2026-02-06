@@ -67,6 +67,13 @@ export default function PolicySummaryPanel({
   // Check if agent execution is available
   const hasAgentExecution = !!application.agent_execution;
 
+  // Detect Apple Health workflow - check multiple indicators
+  const isAppleHealth = 
+    application.llm_outputs?.is_apple_health === true ||
+    application.llm_outputs?.workflow_type === 'apple_health' ||
+    application.llm_outputs?.source === 'end_user' ||
+    application.persona === 'end_user';
+
   // Cleanup EventSource on unmount
   useEffect(() => {
     return () => {
@@ -176,10 +183,15 @@ export default function PolicySummaryPanel({
                 <span>Multi-Agent Orchestration Running</span>
               </div>
               {/* Full detailed agent progress tracker */}
-              <AgentProgressTracker progress={agentProgress} compact={false} showTitle={false} />
+              <AgentProgressTracker 
+                progress={agentProgress} 
+                compact={false} 
+                showTitle={false} 
+                isAppleHealth={isAppleHealth}
+              />
               {agentProgress.length > 0 ? (
                 <div className="text-xs text-slate-500">
-                  Step {Math.max(...agentProgress.map(p => p.step_number), 1)} of 4 agents processing...
+                  Step {Math.max(...agentProgress.map(p => p.step_number), 1)} of {isAppleHealth ? 3 : 4} agents processing...
                 </div>
               ) : (
                 <div className="flex items-center gap-2">
@@ -291,10 +303,15 @@ export default function PolicySummaryPanel({
               </div>
             </div>
             {/* Full-width agent progress tracker */}
-            <AgentProgressTracker progress={agentProgress} compact={false} showTitle={false} />
+            <AgentProgressTracker 
+              progress={agentProgress} 
+              compact={false} 
+              showTitle={false} 
+              isAppleHealth={isAppleHealth}
+            />
             {agentProgress.length > 0 ? (
               <div className="text-xs text-slate-500">
-                Step {Math.max(...agentProgress.map(p => p.step_number), 1)} of 4 agents processing...
+                Step {Math.max(...agentProgress.map(p => p.step_number), 1)} of {isAppleHealth ? 3 : 4} agents processing...
               </div>
             ) : (
               <div className="flex items-center gap-2">

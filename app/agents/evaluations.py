@@ -194,6 +194,12 @@ AGENT_EVALUATION_CONFIGS: Dict[str, AgentEvaluationConfig] = {
         expected_output_fields=["risk_assessment", "policy_recommendation"],
         min_response_length=50,
     ),
+    "AppleHealthRiskAgent": AgentEvaluationConfig(
+        agent_id="AppleHealthRiskAgent",
+        evaluators=[EvaluatorType.COMPLETENESS, EvaluatorType.STRUCTURE, EvaluatorType.COHERENCE],
+        expected_output_fields=["hkrs_score", "hkrs_band", "category_scores", "risk_class_recommendation", "rationale"],
+        min_response_length=100,
+    ),
     "BusinessRulesValidationAgent": AgentEvaluationConfig(
         agent_id="BusinessRulesValidationAgent",
         evaluators=[EvaluatorType.COMPLETENESS, EvaluatorType.COHERENCE],

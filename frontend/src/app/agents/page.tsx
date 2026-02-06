@@ -20,7 +20,11 @@ interface Application {
   created_at: string;
   persona: string;
   status: string;
-  llm_outputs: Record<string, unknown> | null;
+  llm_outputs: {
+    is_apple_health?: boolean;
+    workflow_type?: string;
+    [key: string]: unknown;
+  } | null;
   agent_execution: {
     workflow_id: string;
     orchestrator_output: OrchestratorOutput;
@@ -399,7 +403,10 @@ export default function AgentsPage() {
 
         {/* Live Progress Tracker - show during loading even if no progress yet */}
         {(isStreaming || loading) && (
-          <AgentProgressTracker progress={agentProgress} />
+          <AgentProgressTracker 
+            progress={agentProgress} 
+            isAppleHealth={applications.find(a => a.id === selectedAppId)?.llm_outputs?.is_apple_health === true}
+          />
         )}
 
         {/* Results */}

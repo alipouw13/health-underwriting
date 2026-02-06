@@ -2378,9 +2378,9 @@ Provide JSON:
     ) -> CommunicationOutput:
         """Step 3: Execute CommunicationAgent.
         
-        In the simplified 2-agent workflow, this agent generates:
-        - Internal underwriter message with technical details
-        - External customer message with appropriate tone
+        Supports both workflows:
+        - Traditional: Uses PolicyRiskAgent output
+        - Apple Health: Uses AppleHealthRiskAgent output
         """
         self.logger.info("Step 3: Executing CommunicationAgent%s",
                         " (via Azure AI Foundry)" if self._use_foundry else " (local)")
@@ -2388,18 +2388,40 @@ Provide JSON:
         # Get outputs from previous steps
         hda_output: HealthDataAnalysisOutput = context.get_output("HealthDataAnalysisAgent")
         pr_output: PolicyRiskOutput = context.get_output("PolicyRiskAgent")
+        ah_output: AppleHealthRiskOutput = context.get_output("AppleHealthRiskAgent")
         
-        # Get calculated values from PolicyRiskAgent step
-        risk_level_str = context._outputs.get("_risk_level", pr_output.risk_level.value if pr_output else "moderate")
-        premium_adjustment_pct = context._outputs.get("_premium_adjustment_pct", pr_output.premium_adjustment_recommendation.adjustment_percentage if pr_output else 0)
-        base_premium = context._outputs.get("_base_premium", pr_output.premium_adjustment_recommendation.base_premium_annual if pr_output else 1000)
-        adjusted_premium = context._outputs.get("_adjusted_premium", pr_output.premium_adjustment_recommendation.adjusted_premium_annual if pr_output else 1000)
-        triggered_rules = context._outputs.get("_triggered_rules", pr_output.triggered_rules if pr_output else [])
-        referral_required = context._outputs.get("_referral_required", pr_output.referral_required if pr_output else False)
+        # Determine which workflow was used
+        is_apple_health = ah_output is not None
         
-        # Determine status based on PolicyRiskAgent decision
-        decision = context._outputs.get("_decision", pr_output.decision if pr_output else "approved")
-        approved = context._outputs.get("_approved", pr_output.approved if pr_output else True)
+        # Get calculated values from context (set by either PolicyRiskAgent or AppleHealthRiskAgent)
+        risk_level_str = context._outputs.get("_risk_level", "moderate")
+        premium_adjustment_pct = context._outputs.get("_premium_adjustment_pct", 0)
+        base_premium = context._outputs.get("_base_premium", 1000)
+        adjusted_premium = context._outputs.get("_adjusted_premium", 1000)
+        triggered_rules = context._outputs.get("_triggered_rules", [])
+        referral_required = context._outputs.get("_referral_required", False)
+        decision = context._outputs.get("_decision", "approved")
+        approved = context._outputs.get("_approved", True)
+        
+        # Get rationale from the appropriate agent
+        if is_apple_health:
+            rationale = ah_output.rationale if ah_output else "HKRS-based assessment completed."
+            risk_class = ah_output.risk_class_recommendation if ah_output else "Standard"
+            hkrs = ah_output.hkrs if ah_output else 60
+        else:
+            rationale = pr_output.rationale if pr_output else "Risk assessment completed."
+            risk_class = None
+            hkrs = None
+            # Also get values from pr_output if context doesn't have them
+            if pr_output:
+                risk_level_str = context._outputs.get("_risk_level", pr_output.risk_level.value)
+                premium_adjustment_pct = context._outputs.get("_premium_adjustment_pct", pr_output.premium_adjustment_recommendation.adjustment_percentage)
+                base_premium = context._outputs.get("_base_premium", pr_output.premium_adjustment_recommendation.base_premium_annual)
+                adjusted_premium = context._outputs.get("_adjusted_premium", pr_output.premium_adjustment_recommendation.adjusted_premium_annual)
+                triggered_rules = context._outputs.get("_triggered_rules", pr_output.triggered_rules)
+                referral_required = context._outputs.get("_referral_required", pr_output.referral_required)
+                decision = context._outputs.get("_decision", pr_output.decision)
+                approved = context._outputs.get("_approved", pr_output.approved)
         
         if decision == "declined" or not approved:
             status = DecisionStatus.DECLINED
@@ -2436,7 +2458,7 @@ Provide JSON:
 {chr(10).join('- ' + rf for rf in key_risk_factors) if key_risk_factors else '- No significant risk factors identified'}
 
 ## Decision Rationale:
-{pr_output.rationale}
+{rationale}
 
 ## Triggered Policy Rules:
 {chr(10).join('- ' + r for r in triggered_rules) if triggered_rules else '- Standard rates apply'}
@@ -2470,7 +2492,7 @@ Return JSON:
                     "risk_level": risk_level_str,
                     "premium_adjustment_pct": premium_adjustment_pct,
                     "adjusted_premium": adjusted_premium,
-                    "rationale": pr_output.rationale,
+                    "rationale": rationale,
                     "key_risk_factors": key_risk_factors,
                     "patient_profile": patient_profile.model_dump(mode='json'),
                 },
@@ -2483,7 +2505,7 @@ Return JSON:
                 agent_id="CommunicationAgent",
                 underwriter_message=parsed.get("underwriter_message", 
                     f"Underwriting decision: {status.value}. Risk level: {risk_level_str}. "
-                    f"Premium adjustment: {premium_adjustment_pct}%. {pr_output.rationale}"),
+                    f"Premium adjustment: {premium_adjustment_pct}%. {rationale}"),
                 customer_message=parsed.get("customer_message", 
                     f"Dear Applicant, your application has been {status.value.lower().replace('_', ' ')}. "
                     f"Please contact us if you have any questions."),
@@ -2520,13 +2542,13 @@ Return JSON:
                     base_premium_annual=base_premium,
                     adjustment_percentage=premium_adjustment_pct,
                     adjusted_premium_annual=adjusted_premium,
-                    adjustment_reasons=[pr_output.rationale] if pr_output.rationale else [],
+                    adjustment_reasons=[rationale] if rationale else [],
                 ),
                 confidence_score=0.8,  # Default confidence
                 data_quality_level=DataQualityLevel.GOOD,
-                decision_rationale=pr_output.rationale,
+                decision_rationale=rationale,
                 key_risk_factors=key_risk_factors,
-                regulatory_compliant=pr_output.approved,
+                regulatory_compliant=approved,
                 bias_check_passed=True,
             )
             
@@ -2546,7 +2568,7 @@ Return JSON:
             "risk_level": context._outputs.get("_risk_level", "unknown"),
             "premium_adjustment_pct": context._outputs.get("_premium_adjustment_pct", 0),
             "adjusted_premium": context._outputs.get("_adjusted_premium", 0),
-            "approved": pr_output.approved if pr_output else True,
+            "approved": approved,
         }
         # Get actual tools used from Foundry or use defaults
         tools_used = result.get("tools_used", ["generate_decision_summary"]) if self._use_foundry else ["local-message-generator"]
@@ -2705,11 +2727,24 @@ Return JSON:
         agent was asked to communicate.
         """
         pr_output = context.get_output("PolicyRiskAgent")
+        ah_output = context.get_output("AppleHealthRiskAgent")
         health_output = context.get_output("HealthDataAnalysisAgent")
         
         summary_parts = []
         
-        if pr_output:
+        # Check for Apple Health workflow first
+        if ah_output:
+            if hasattr(ah_output, 'approved'):
+                summary_parts.append(f"Approved: {ah_output.approved}")
+            if hasattr(ah_output, 'decision'):
+                summary_parts.append(f"Decision: {ah_output.decision}")
+            if hasattr(ah_output, 'rationale'):
+                summary_parts.append(f"Rationale: {ah_output.rationale}")
+            if hasattr(ah_output, 'hkrs_score'):
+                summary_parts.append(f"HKRS Score: {ah_output.hkrs_score}")
+            if hasattr(ah_output, 'hkrs_band'):
+                summary_parts.append(f"Risk Band: {ah_output.hkrs_band.value}")
+        elif pr_output:
             if hasattr(pr_output, 'approved'):
                 summary_parts.append(f"Approved: {pr_output.approved}")
             if hasattr(pr_output, 'decision'):

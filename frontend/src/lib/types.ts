@@ -92,7 +92,11 @@ export interface LLMOutputs {
     requirements_summary?: SubsectionOutput;
     [key: string]: SubsectionOutput | undefined;
   };
-  [key: string]: Record<string, SubsectionOutput | undefined> | undefined;
+  // Apple Health workflow flags
+  is_apple_health?: boolean;
+  workflow_type?: 'apple_health' | 'admin' | 'end_user';
+  source?: 'end_user' | 'admin' | string;
+  [key: string]: Record<string, SubsectionOutput | undefined> | boolean | string | undefined;
 }
 
 // Risk Analysis types (separate from standard LLM outputs)
