@@ -10,6 +10,7 @@ import {
   ChevronDown,
   Bot,
   User,
+  Award,
 } from 'lucide-react';
 import type { ApplicationListItem, ApplicationMetadata } from '@/lib/types';
 import clsx from 'clsx';
@@ -22,9 +23,10 @@ interface TopNavProps {
   applications: ApplicationListItem[];
   selectedAppId?: string;
   selectedApp?: ApplicationMetadata;
-  activeView: 'overview' | 'timeline' | 'documents' | 'source';
+  activeView: 'overview' | 'timeline' | 'documents' | 'source' | 'risk-classes';
   onSelectApp: (appId: string) => void;
-  onChangeView: (view: 'overview' | 'timeline' | 'documents' | 'source') => void;
+  onChangeView: (view: 'overview' | 'timeline' | 'documents' | 'source' | 'risk-classes') => void;
+  isApplicantMode?: boolean;
 }
 
 export default function TopNav({
@@ -34,6 +36,7 @@ export default function TopNav({
   activeView,
   onSelectApp,
   onChangeView,
+  isApplicantMode = false,
 }: TopNavProps) {
   const [appDropdownOpen, setAppDropdownOpen] = useState(false);
   const { personaConfig } = usePersona();
@@ -41,8 +44,18 @@ export default function TopNav({
   
   const hasDocuments = selectedApp?.files && selectedApp.files.length > 0;
   const hasSourcePages = selectedApp?.markdown_pages && selectedApp.markdown_pages.length > 0;
+  
+  // Check if this is an Apple Health application
+  const isAppleHealthApp = selectedApp?.llm_outputs?.is_apple_health === true || 
+                            selectedApp?.llm_outputs?.workflow_type === 'apple_health' ||
+                            selectedApp?.llm_outputs?.source === 'end_user' ||
+                            selectedApp?.persona === 'end_user';
 
-  const navItems = [
+  // Different nav items for Apple Health applicant view vs admin view
+  const navItems = isApplicantMode || isAppleHealthApp ? [
+    { id: 'overview' as const, label: 'Overview', icon: LayoutDashboard, enabled: true },
+    { id: 'risk-classes' as const, label: 'Risk Classifications', icon: Award, enabled: true },
+  ] : [
     { id: 'overview' as const, label: 'Overview', icon: LayoutDashboard, enabled: true },
     { id: 'timeline' as const, label: 'Timeline', icon: Clock, enabled: true },
     { id: 'documents' as const, label: 'Documents', icon: FileText, enabled: hasDocuments, count: selectedApp?.files?.length },

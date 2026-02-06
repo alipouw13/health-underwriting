@@ -806,14 +806,21 @@ def convert_agent_output_to_legacy_format(
     
     # Map DecisionStatus to premium recommendation
     status_value = final_decision.status.value if hasattr(final_decision.status, 'value') else str(final_decision.status)
-    decision_map = {
-        "approved": "Standard",
-        "approved_with_conditions": "Rated",
-        "declined": "Decline",
-        "pending_review": "Defer",
-        "referred": "Defer",
-    }
-    base_decision = decision_map.get(status_value.lower(), "Standard")
+    
+    # Use risk_class from Apple Health workflow if available, otherwise map from status
+    if hasattr(final_decision, 'risk_class') and final_decision.risk_class:
+        # Apple Health workflow - use the risk class directly
+        base_decision = final_decision.risk_class
+    else:
+        # Traditional workflow - map from decision status
+        decision_map = {
+            "approved": "Standard",
+            "approved_with_conditions": "Rated",
+            "declined": "Decline",
+            "pending_review": "Defer",
+            "referred": "Defer",
+        }
+        base_decision = decision_map.get(status_value.lower(), "Standard")
     
     # Build findings from agent execution records
     findings = []

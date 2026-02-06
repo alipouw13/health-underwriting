@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { X, FileText, Download, RefreshCw, Shield, AlertTriangle, CheckCircle, Clock, Play, Loader2 } from 'lucide-react';
+import { X, FileText, Download, RefreshCw, Shield, AlertTriangle, CheckCircle, Clock, Play, Loader2, User, DollarSign, Activity, FileCheck } from 'lucide-react';
 import type { ApplicationMetadata, RiskFinding, RiskAnalysisResult } from '@/lib/types';
 
 interface PolicyReportModalProps {
@@ -9,6 +9,235 @@ interface PolicyReportModalProps {
   onClose: () => void;
   application: ApplicationMetadata;
   onRerunAnalysis?: () => Promise<void>;
+}
+
+// Parse and structure the underwriting action message
+function parseUnderwriterMessage(message: string): {
+  applicantInfo?: { id?: string; age?: string; gender?: string; policyType?: string; coverageAmount?: string };
+  riskClassification?: string;
+  keyRiskFactors?: string[];
+  premiumCalculation?: { basePremium?: string; adjustment?: string; adjustedPremium?: string };
+  decision?: { status?: string; referralRequired?: boolean };
+  rationale?: string;
+  fullMessage?: string;
+  rawSections: { title: string; content: string }[];
+} {
+  const result: ReturnType<typeof parseUnderwriterMessage> = { rawSections: [] };
+  
+  // Try to extract structured information from the message
+  const idMatch = message.match(/Applicant ID:\s*(\S+)/i);
+  const ageMatch = message.match(/Age:\s*(\d+)/i);
+  const genderMatch = message.match(/(?:Age:\s*\d+,?\s*)(\w+)/i) || message.match(/Gender:\s*(\w+)/i);
+  const policyTypeMatch = message.match(/Policy Type:\s*([^-\n]+)/i);
+  const coverageMatch = message.match(/Coverage Amount:\s*\$?([\d,]+)/i);
+  const riskClassMatch = message.match(/Risk Classification:\s*([^\-\n]+)/i);
+  const basePremiumMatch = message.match(/Base Premium:\s*\$?([\d,]+)/i);
+  const adjustmentMatch = message.match(/Premium Adjustment:\s*([^\-\n]+)/i);
+  const adjustedPremiumMatch = message.match(/Adjusted (?:Annual )?Premium:\s*\$?([\d,]+)/i);
+  const decisionMatch = message.match(/Decision:\s*([^\-\n]+)/i);
+  const referralMatch = message.match(/(?:No )?[Rr]eferral [Rr]equired/i);
+  
+  if (idMatch || ageMatch || genderMatch || policyTypeMatch) {
+    result.applicantInfo = {
+      id: idMatch?.[1],
+      age: ageMatch?.[1],
+      gender: genderMatch?.[1],
+      policyType: policyTypeMatch?.[1]?.trim(),
+      coverageAmount: coverageMatch?.[1],
+    };
+  }
+  
+  if (riskClassMatch) {
+    result.riskClassification = riskClassMatch[1].trim();
+  }
+  
+  // Extract key risk factors section
+  const riskFactorsMatch = message.match(/Key Risk Factors:([^-]*?)(?:Premium Calculation|Decision|$)/is);
+  if (riskFactorsMatch) {
+    const factors = riskFactorsMatch[1]
+      .split(/[-•]/)
+      .map(f => f.trim())
+      .filter(f => f.length > 5);
+    if (factors.length > 0) {
+      result.keyRiskFactors = factors;
+    }
+  }
+  
+  if (basePremiumMatch || adjustmentMatch || adjustedPremiumMatch) {
+    result.premiumCalculation = {
+      basePremium: basePremiumMatch?.[1],
+      adjustment: adjustmentMatch?.[1]?.trim(),
+      adjustedPremium: adjustedPremiumMatch?.[1],
+    };
+  }
+  
+  if (decisionMatch) {
+    result.decision = {
+      status: decisionMatch[1].trim(),
+      referralRequired: referralMatch ? !message.toLowerCase().includes('no referral') : undefined,
+    };
+  }
+  
+  // Extract rationale - look for sentences about justification or overall assessment
+  // Try multiple patterns to find the rationale
+  const rationalePatterns = [
+    /(?:justify this decision[.:]?\s*)(.+)$/is,
+    /(?:factors justify[.:]?\s*)(.+)$/is,
+    /(?:rationale[.:]?\s*)(.+)$/is,
+    /The overall.+(?:justify|decision|factors).+$/is,
+    /(?:No referral required\.?\s*)(.+)$/is,
+  ];
+  
+  for (const pattern of rationalePatterns) {
+    const match = message.match(pattern);
+    if (match) {
+      result.rationale = (match[1] || match[0]).trim();
+      if (result.rationale.length > 20) break; // Found a substantial rationale
+    }
+  }
+  
+  // If no rationale found, extract everything after "Decision:" or the last substantive sentence
+  if (!result.rationale || result.rationale.length < 20) {
+    const afterDecision = message.match(/Decision:[^.]+\.\s*(.+)$/is);
+    if (afterDecision && afterDecision[1]) {
+      result.rationale = afterDecision[1].trim();
+    }
+  }
+  
+  // Store the full message for fallback display
+  result.fullMessage = message;
+  
+  return result;
+}
+
+// Formatted Underwriter Message Component
+function FormattedUnderwriterMessage({ message }: { message: string }) {
+  const parsed = parseUnderwriterMessage(message);
+  
+  return (
+    <div className="space-y-4">
+      {/* Applicant Summary */}
+      {parsed.applicantInfo && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {parsed.applicantInfo.id && (
+            <div className="bg-slate-50 p-3 rounded-lg">
+              <div className="text-xs text-slate-500 uppercase tracking-wide">Applicant ID</div>
+              <div className="font-semibold text-slate-900">{parsed.applicantInfo.id}</div>
+            </div>
+          )}
+          {parsed.applicantInfo.age && (
+            <div className="bg-slate-50 p-3 rounded-lg">
+              <div className="text-xs text-slate-500 uppercase tracking-wide">Age</div>
+              <div className="font-semibold text-slate-900">{parsed.applicantInfo.age} years</div>
+            </div>
+          )}
+          {parsed.applicantInfo.policyType && (
+            <div className="bg-slate-50 p-3 rounded-lg">
+              <div className="text-xs text-slate-500 uppercase tracking-wide">Policy Type</div>
+              <div className="font-semibold text-slate-900">{parsed.applicantInfo.policyType}</div>
+            </div>
+          )}
+          {parsed.applicantInfo.coverageAmount && (
+            <div className="bg-slate-50 p-3 rounded-lg">
+              <div className="text-xs text-slate-500 uppercase tracking-wide">Coverage</div>
+              <div className="font-semibold text-slate-900">${parsed.applicantInfo.coverageAmount}</div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Risk Classification */}
+      {parsed.riskClassification && (
+        <div className="flex items-center gap-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+          <Activity className="w-5 h-5 text-blue-600" />
+          <div>
+            <span className="text-sm text-blue-700 font-medium">Risk Classification: </span>
+            <span className="text-sm text-blue-900 font-semibold">{parsed.riskClassification}</span>
+          </div>
+        </div>
+      )}
+
+      {/* Key Risk Factors */}
+      {parsed.keyRiskFactors && parsed.keyRiskFactors.length > 0 && (
+        <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+          <div className="flex items-center gap-2 mb-2">
+            <AlertTriangle className="w-4 h-4 text-amber-600" />
+            <span className="text-sm font-semibold text-amber-800">Key Risk Factors</span>
+          </div>
+          <ul className="space-y-1">
+            {parsed.keyRiskFactors.map((factor, idx) => (
+              <li key={idx} className="text-sm text-amber-900 flex items-start gap-2">
+                <span className="text-amber-500 mt-1">•</span>
+                <span>{factor}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* Premium Calculation */}
+      {parsed.premiumCalculation && (
+        <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg">
+          <div className="flex items-center gap-2 mb-2">
+            <DollarSign className="w-4 h-4 text-emerald-600" />
+            <span className="text-sm font-semibold text-emerald-800">Premium Calculation</span>
+          </div>
+          <div className="grid grid-cols-3 gap-3 text-sm">
+            {parsed.premiumCalculation.basePremium && (
+              <div>
+                <div className="text-emerald-600">Base Premium</div>
+                <div className="font-semibold text-emerald-900">${parsed.premiumCalculation.basePremium}</div>
+              </div>
+            )}
+            {parsed.premiumCalculation.adjustment && (
+              <div>
+                <div className="text-emerald-600">Adjustment</div>
+                <div className="font-semibold text-emerald-900">{parsed.premiumCalculation.adjustment}</div>
+              </div>
+            )}
+            {parsed.premiumCalculation.adjustedPremium && (
+              <div>
+                <div className="text-emerald-600">Final Premium</div>
+                <div className="font-semibold text-emerald-900">${parsed.premiumCalculation.adjustedPremium}</div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Decision */}
+      {parsed.decision && (
+        <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-lg">
+          <div className="flex items-center gap-2 mb-2">
+            <FileCheck className="w-4 h-4 text-indigo-600" />
+            <span className="text-sm font-semibold text-indigo-800">Decision</span>
+          </div>
+          <div className="flex items-center gap-4">
+            <span className="text-sm text-indigo-900">
+              <span className="font-medium">Status:</span> {parsed.decision.status}
+            </span>
+            {parsed.decision.referralRequired !== undefined && (
+              <span className={`text-sm ${parsed.decision.referralRequired ? 'text-amber-700' : 'text-emerald-700'}`}>
+                {parsed.decision.referralRequired ? '⚠️ Referral Required' : '✓ No Referral Required'}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Rationale / Full Summary */}
+      <div className="p-4 bg-slate-50 border border-slate-200 rounded-lg">
+        <div className="text-xs text-slate-500 uppercase tracking-wide mb-2 font-semibold">
+          Underwriting Summary
+        </div>
+        <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">
+          {parsed.rationale && parsed.rationale.length > 50 
+            ? parsed.rationale 
+            : parsed.fullMessage || message}
+        </p>
+      </div>
+    </div>
+  );
 }
 
 function getRatingBadge(rating: string) {
@@ -35,6 +264,61 @@ function getRatingBadge(rating: string) {
       Low Risk
     </span>
   );
+}
+
+// Format underwriter message for PDF export
+function formatUnderwriterMessageForPDF(message: string): string {
+  const parsed = parseUnderwriterMessage(message);
+  let html = '';
+  
+  // Applicant Info
+  if (parsed.applicantInfo) {
+    html += '<div class="info-grid">';
+    if (parsed.applicantInfo.id) html += `<div><strong>Applicant ID:</strong> ${parsed.applicantInfo.id}</div>`;
+    if (parsed.applicantInfo.age) html += `<div><strong>Age:</strong> ${parsed.applicantInfo.age} years</div>`;
+    if (parsed.applicantInfo.policyType) html += `<div><strong>Policy Type:</strong> ${parsed.applicantInfo.policyType}</div>`;
+    if (parsed.applicantInfo.coverageAmount) html += `<div><strong>Coverage:</strong> $${parsed.applicantInfo.coverageAmount}</div>`;
+    html += '</div>';
+  }
+  
+  // Risk Classification
+  if (parsed.riskClassification) {
+    html += `<p><strong>Risk Classification:</strong> ${parsed.riskClassification}</p>`;
+  }
+  
+  // Key Risk Factors
+  if (parsed.keyRiskFactors && parsed.keyRiskFactors.length > 0) {
+    html += '<div class="risk-factors"><strong>Key Risk Factors:</strong><ul>';
+    parsed.keyRiskFactors.forEach(factor => {
+      html += `<li>${factor}</li>`;
+    });
+    html += '</ul></div>';
+  }
+  
+  // Premium Calculation
+  if (parsed.premiumCalculation) {
+    html += '<div class="premium-calc"><strong>Premium Calculation:</strong><br>';
+    if (parsed.premiumCalculation.basePremium) html += `Base Premium: $${parsed.premiumCalculation.basePremium}<br>`;
+    if (parsed.premiumCalculation.adjustment) html += `Adjustment: ${parsed.premiumCalculation.adjustment}<br>`;
+    if (parsed.premiumCalculation.adjustedPremium) html += `Final Premium: $${parsed.premiumCalculation.adjustedPremium}`;
+    html += '</div>';
+  }
+  
+  // Decision
+  if (parsed.decision) {
+    html += `<p><strong>Decision:</strong> ${parsed.decision.status}`;
+    if (parsed.decision.referralRequired !== undefined) {
+      html += ` | ${parsed.decision.referralRequired ? 'Referral Required' : 'No Referral Required'}`;
+    }
+    html += '</p>';
+  }
+  
+  // Rationale
+  if (parsed.rationale) {
+    html += `<p><strong>Rationale:</strong> ${parsed.rationale}</p>`;
+  }
+  
+  return html || `<p>${message}</p>`;
 }
 
 export default function PolicyReportModal({
@@ -143,6 +427,7 @@ export default function PolicyReportModal({
             body { font-family: Arial, sans-serif; margin: 40px; color: #333; }
             h1 { color: #1e293b; border-bottom: 2px solid #e2e8f0; padding-bottom: 10px; }
             h2 { color: #475569; margin-top: 30px; }
+            h3 { color: #64748b; margin-top: 15px; }
             .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; }
             .rating { font-size: 18px; font-weight: bold; padding: 8px 16px; border-radius: 8px; }
             .rating.high { background: #fee2e2; color: #b91c1c; }
@@ -152,6 +437,12 @@ export default function PolicyReportModal({
             .policy-id { font-family: monospace; background: #e0e7ff; padding: 2px 6px; border-radius: 4px; color: #4338ca; }
             .summary-box { padding: 20px; background: #f1f5f9; border-radius: 8px; margin: 20px 0; }
             .premium-box { padding: 20px; background: #fef3c7; border-radius: 8px; margin: 20px 0; }
+            .decision-summary { padding: 20px; background: #f8fafc; border-radius: 8px; margin: 20px 0; border: 1px solid #e2e8f0; }
+            .decision-summary .info-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 15px; padding-bottom: 15px; border-bottom: 1px solid #e2e8f0; }
+            .decision-summary .info-grid div { padding: 8px; background: #f1f5f9; border-radius: 4px; }
+            .decision-summary .risk-factors { background: #fef3c7; padding: 10px; border-radius: 4px; margin: 10px 0; }
+            .decision-summary .risk-factors ul { margin: 5px 0 0 20px; }
+            .decision-summary .premium-calc { background: #d1fae5; padding: 10px; border-radius: 4px; margin: 10px 0; }
             .footer { margin-top: 40px; padding-top: 20px; border-top: 1px solid #e2e8f0; color: #64748b; font-size: 12px; }
             @media print { body { margin: 20px; } }
           </style>
@@ -197,8 +488,10 @@ export default function PolicyReportModal({
           `).join('')}
           
           ${riskAnalysis?.underwriting_action ? `
-          <h2>Recommended Action</h2>
-          <p>${riskAnalysis.underwriting_action}</p>
+          <h2>Underwriting Decision Summary</h2>
+          <div class="decision-summary">
+            ${formatUnderwriterMessageForPDF(riskAnalysis.underwriting_action)}
+          </div>
           ` : ''}
           
           ${riskAnalysis?.data_gaps?.length ? `
@@ -417,15 +710,16 @@ export default function PolicyReportModal({
                 )}
               </div>
 
-              {/* Underwriting Action */}
+              {/* Underwriting Action - Formatted */}
               {riskAnalysis.underwriting_action && (
-                <div className="mt-6 p-4 bg-indigo-50 rounded-lg border border-indigo-200">
-                  <h3 className="text-sm font-semibold text-indigo-800 uppercase tracking-wide mb-2">
-                    Recommended Action
+                <div className="mt-6">
+                  <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wide mb-3 flex items-center gap-2">
+                    <Shield className="w-4 h-4 text-indigo-600" />
+                    Underwriting Decision Summary
                   </h3>
-                  <p className="text-sm text-indigo-900">
-                    {riskAnalysis.underwriting_action}
-                  </p>
+                  <div className="border border-slate-200 rounded-lg p-4 bg-white">
+                    <FormattedUnderwriterMessage message={riskAnalysis.underwriting_action} />
+                  </div>
                 </div>
               )}
 

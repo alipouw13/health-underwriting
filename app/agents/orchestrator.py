@@ -234,6 +234,9 @@ class FinalDecision(AgentInput):
     patient_name: Optional[str] = Field(default=None, description="Patient name for display")
     status: DecisionStatus = Field(..., description="Decision status")
     risk_level: RiskLevel = Field(..., description="Final risk level")
+    risk_class: Optional[str] = Field(default=None, description="Risk classification (e.g., Standard Plus, Standard)")
+    hkrs_score: Optional[float] = Field(default=None, description="HKRS score for Apple Health workflow")
+    hkrs_band: Optional[str] = Field(default=None, description="HKRS band for Apple Health workflow")
     approved: bool = Field(..., description="Whether application is approved")
     premium_adjustment_pct: float = Field(..., description="Premium adjustment percentage")
     adjusted_premium_annual: float = Field(..., description="Final annual premium")
@@ -2408,10 +2411,28 @@ Provide JSON:
             rationale = ah_output.rationale if ah_output else "HKRS-based assessment completed."
             risk_class = ah_output.risk_class_recommendation if ah_output else "Standard"
             hkrs = ah_output.hkrs if ah_output else 60
+            hkrs_band = ah_output.hkrs_band.value if ah_output else "standard"
+            sub_scores = ah_output.sub_scores if ah_output else []
+            age_adjustment_factor = ah_output.age_adjustment_factor if ah_output else 1.0
+            age_bracket = ah_output.age_bracket if ah_output else "Unknown"
+            raw_score_before_aaf = ah_output.raw_score_before_aaf if ah_output else 0
+            top_positive_drivers = ah_output.top_positive_drivers if ah_output else []
+            improvement_suggestions = ah_output.improvement_suggestions if ah_output else []
+            data_quality = ah_output.data_quality.value if ah_output else "medium"
+            data_gaps = ah_output.data_gaps if ah_output else []
         else:
             rationale = pr_output.rationale if pr_output else "Risk assessment completed."
             risk_class = None
             hkrs = None
+            hkrs_band = None
+            sub_scores = []
+            age_adjustment_factor = None
+            age_bracket = None
+            raw_score_before_aaf = None
+            top_positive_drivers = []
+            improvement_suggestions = []
+            data_quality = None
+            data_gaps = []
             # Also get values from pr_output if context doesn't have them
             if pr_output:
                 risk_level_str = context._outputs.get("_risk_level", pr_output.risk_level.value)
@@ -2436,8 +2457,92 @@ Provide JSON:
         key_risk_factors = [ri.explanation for ri in hda_output.risk_indicators[:3]]
         
         if self._use_foundry:
-            # Build prompt for Foundry agent
-            prompt = f"""You are a Communication Specialist. Generate professional communications for an underwriting decision.
+            # Build prompt for Foundry agent - different for Apple Health vs Traditional
+            if is_apple_health:
+                # Build detailed HKRS breakdown for Apple Health workflow
+                sub_score_details = ""
+                for ss in sub_scores:
+                    sub_score_details += f"\n### {ss.name} (Weight: {ss.weight*100:.0f}%)\n"
+                    sub_score_details += f"- Raw Score: {ss.raw_score:.1f}/100\n"
+                    sub_score_details += f"- Weighted Score: {ss.weighted_score:.1f}\n"
+                    sub_score_details += f"- Max Points: {ss.max_points}\n"
+                    if ss.components:
+                        sub_score_details += "- Components:\n"
+                        for comp_name, comp_value in ss.components.items():
+                            sub_score_details += f"  - {comp_name}: {comp_value}\n"
+                    if ss.notes:
+                        sub_score_details += f"- Notes: {', '.join(ss.notes)}\n"
+                
+                prompt = f"""You are a Communication Specialist for Apple Health-based life insurance underwriting. 
+Generate a comprehensive underwriting decision summary based on the HealthKit Risk Score (HKRS) assessment.
+
+## Applicant Details:
+- Applicant ID: {context.patient_id}
+- Age: {patient_profile.demographics.age} years ({age_bracket} bracket)
+- Policy Type: {patient_profile.policy_type_requested}
+- Coverage Amount: ${patient_profile.coverage_amount_requested:,.2f}
+
+## HKRS Assessment Results:
+- **Final HKRS Score: {hkrs:.1f}/100**
+- **HKRS Band: {hkrs_band.replace('_', ' ').title()}**
+- **Risk Classification: {risk_class}**
+- Raw Score (before age adjustment): {raw_score_before_aaf:.1f}
+- Age Adjustment Factor: {age_adjustment_factor:.2f}
+- Data Quality: {data_quality.title() if data_quality else 'Unknown'}
+
+## Category-by-Category Breakdown:
+{sub_score_details if sub_score_details else '- No detailed sub-scores available'}
+
+## Premium Calculation:
+- Base Premium: ${base_premium:.2f}
+- Premium Adjustment: {premium_adjustment_pct}%
+- Adjusted Annual Premium: ${adjusted_premium:.2f}
+
+## Decision:
+- Status: {status.value}
+- Approved: {approved}
+- Referral Required: {referral_required}
+
+## Positive Factors:
+{chr(10).join('- ' + f for f in top_positive_drivers) if top_positive_drivers else '- None identified'}
+
+## Areas for Improvement:
+{chr(10).join('- ' + s for s in improvement_suggestions) if improvement_suggestions else '- None identified'}
+
+## Data Gaps:
+{chr(10).join('- ' + g for g in data_gaps) if data_gaps else '- No significant data gaps'}
+
+Generate two messages:
+
+1. **Underwriter Message** (Internal): A comprehensive technical summary that includes:
+   - The HKRS score breakdown with justification for each of the 7 categories
+   - How each category score was calculated
+   - The age adjustment applied
+   - Premium calculation details
+   - Risk classification rationale
+   - Any data quality concerns
+   
+   Format this as a structured report with clear sections.
+
+2. **Customer Message** (External): A professional, friendly letter explaining:
+   - Their application was reviewed using their Apple Health data
+   - The overall outcome (approval status)
+   - Their risk classification in simple terms
+   - The premium amount
+   - Any lifestyle factors that positively impacted their assessment
+   - DO NOT include specific health metrics (HIPAA compliance)
+
+Return JSON:
+{{
+  "underwriter_message": "Detailed technical summary...",
+  "customer_message": "Dear Applicant, ...",
+  "tone_assessment": "professional/empathetic/formal",
+  "readability_score": 85,
+  "key_points": ["point1", "point2", "point3"]
+}}"""
+            else:
+                # Traditional workflow prompt
+                prompt = f"""You are a Communication Specialist. Generate professional communications for an underwriting decision.
 
 ## Decision Details:
 - Decision ID: DEC-{context.workflow_id[:8]}
@@ -2948,19 +3053,28 @@ Return JSON:
         }
         risk_level = risk_level_map.get(risk_level_str, RiskLevel.MODERATE)
         
-        return FinalDecision(
-            patient_id=patient_id,
-            patient_name=patient_name,
-            status=status,
-            risk_level=risk_level,
-            approved=approved,
-            premium_adjustment_pct=premium_adjustment_pct,
-            adjusted_premium_annual=adjusted_premium,
-            business_rules_approved=approved,  # Now from PolicyRiskAgent
-            bias_check_passed=True,  # Simplified workflow - no bias check agent
-            underwriter_message=comm_output.underwriter_message,
-            customer_message=comm_output.customer_message,
-        )
+        # Build final decision with Apple Health specific fields if applicable
+        final_decision_kwargs = {
+            "patient_id": patient_id,
+            "patient_name": patient_name,
+            "status": status,
+            "risk_level": risk_level,
+            "approved": approved,
+            "premium_adjustment_pct": premium_adjustment_pct,
+            "adjusted_premium_annual": adjusted_premium,
+            "business_rules_approved": approved,
+            "bias_check_passed": True,
+            "underwriter_message": comm_output.underwriter_message,
+            "customer_message": comm_output.customer_message,
+        }
+        
+        # Add Apple Health specific fields
+        if is_apple_health_workflow and ah_output:
+            final_decision_kwargs["risk_class"] = ah_output.risk_class_recommendation
+            final_decision_kwargs["hkrs_score"] = ah_output.hkrs
+            final_decision_kwargs["hkrs_band"] = ah_output.hkrs_band.value
+        
+        return FinalDecision(**final_decision_kwargs)
     
     def _calculate_confidence(self, context: ExecutionContext) -> float:
         """

@@ -20,6 +20,7 @@ import PolicySummaryPanel from '@/components/PolicySummaryPanel';
 import PolicyReportModal from '@/components/PolicyReportModal';
 import ChatDrawer from '@/components/ChatDrawer';
 import AppleHealthDataPanel from '@/components/AppleHealthDataPanel';
+import RiskClassificationsPanel from '@/components/RiskClassificationsPanel';
 import { ClaimsSummary, MedicalRecordsPanel, EligibilityPanel } from '@/components/claims';
 import LifeHealthClaimsOverview from '@/components/claims/LifeHealthClaimsOverview';
 import PropertyCasualtyClaimsOverview from '@/components/claims/PropertyCasualtyClaimsOverview';
@@ -27,7 +28,7 @@ import AutomotiveClaimsOverview from '@/components/claims/AutomotiveClaimsOvervi
 import { usePersona } from '@/lib/PersonaContext';
 import type { ApplicationMetadata, ApplicationListItem } from '@/lib/types';
 
-type ViewType = 'overview' | 'timeline' | 'documents' | 'source';
+type ViewType = 'overview' | 'timeline' | 'documents' | 'source' | 'risk-classes';
 
 // Applicant session from sessionStorage
 interface ApplicantSession {
@@ -190,6 +191,14 @@ export default function Home() {
     if (!selectedApp) return null;
 
     switch (activeView) {
+      case 'risk-classes':
+        return (
+          <div className="flex-1 overflow-auto p-6">
+            <div className="max-w-7xl mx-auto">
+              <RiskClassificationsPanel />
+            </div>
+          </div>
+        );
       case 'timeline':
         return (
           <div className="flex-1 overflow-auto p-6">
@@ -586,6 +595,7 @@ export default function Home() {
           activeView={activeView}
           onSelectApp={loadApplication}
           onChangeView={setActiveView}
+          isApplicantMode={isApplicantMode}
         />
       )}
       
