@@ -19,3 +19,6 @@ azure-ai-agents>=1.0.0
 # Azure AI Evaluation SDK for Foundry evaluations (optional)
 # Install with: pip install azure-ai-evaluation
 azure-ai-evaluation>=1.0.0b1
+# Azure Monitor OpenTelemetry for tracing to Application Insights / Foundry portal
+azure-monitor-opentelemetry>=1.7.0
+opentelemetry-instrumentation-openai-v2>=2.0.0

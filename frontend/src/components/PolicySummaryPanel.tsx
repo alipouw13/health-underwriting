@@ -1,10 +1,43 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { Shield, FileText, AlertTriangle, CheckCircle, Clock, Play, Loader2, Sparkles, Users, Bot } from 'lucide-react';
+import { Shield, FileText, AlertTriangle, CheckCircle, Clock, Play, Loader2, Sparkles, Users, Bot, Activity, Heart, Moon, PersonStanding, Footprints, Dumbbell } from 'lucide-react';
 import type { ApplicationMetadata, RiskFinding } from '@/lib/types';
 import AgentProgressTracker, { type AgentProgressEvent } from './agents/AgentProgressTracker';
 import AgentInsightsModal from './agents/AgentInsightsModal';
+
+// Apple Health category icons mapping
+const CATEGORY_ICONS: Record<string, React.ReactNode> = {
+  activity: <Footprints className="w-4 h-4" />,
+  vo2_max: <Dumbbell className="w-4 h-4" />,
+  heart_health: <Heart className="w-4 h-4" />,
+  sleep_health: <Moon className="w-4 h-4" />,
+  body_composition: <PersonStanding className="w-4 h-4" />,
+  mobility: <Activity className="w-4 h-4" />,
+};
+
+// Human-readable category names
+const CATEGORY_NAMES: Record<string, string> = {
+  activity: 'Daily Activity',
+  vo2_max: 'Cardio Fitness (VO₂ Max)',
+  heart_health: 'Heart Health',
+  sleep_health: 'Sleep Quality',
+  body_composition: 'Body Composition',
+  mobility: 'Mobility & Balance',
+};
+
+interface SubScore {
+  name?: string;           // Backend uses 'name' for category
+  category?: string;       // Also accept 'category' for compatibility
+  raw_score: number;
+  max_points?: number;     // Backend uses 'max_points'
+  max_score?: number;      // Also accept 'max_score' for compatibility
+  weight?: number;         // Backend uses 'weight' (0-1)
+  weight_pct?: number;     // Also accept 'weight_pct' for compatibility
+  weighted_score: number;
+  notes?: string | string[]; // Backend uses array, UI may use string
+  components?: Record<string, unknown>;
+}
 
 interface PolicySummaryPanelProps {
   application: ApplicationMetadata;
@@ -256,6 +289,20 @@ export default function PolicySummaryPanel({
   // Get agent execution data if available
   const agentExecution = application.agent_execution;
   const orchestratorOutput = agentExecution?.orchestrator_output;
+  
+  // Extract Apple Health sub_scores from execution records
+  const appleHealthSubScores: SubScore[] = (() => {
+    if (!isAppleHealth || !orchestratorOutput?.execution_records) return [];
+    
+    const ahRecord = orchestratorOutput.execution_records.find(
+      (r: { agent_id: string }) => r.agent_id === 'AppleHealthRiskAgent'
+    );
+    
+    // Check both 'output' and 'actual_outputs' since the API may use either
+    const recordOutput = ahRecord?.output || ahRecord?.actual_outputs;
+    if (!recordOutput?.sub_scores) return [];
+    return recordOutput.sub_scores;
+  })();
 
   return (
     <>
@@ -285,9 +332,11 @@ export default function PolicySummaryPanel({
           
           <div className="text-right">
             <div className="text-2xl font-bold text-slate-900">
-              {(riskAnalysis.findings || []).length}
+              {isAppleHealth ? appleHealthSubScores.length || 6 : (riskAnalysis.findings || []).length}
             </div>
-            <div className="text-xs text-slate-500">Policy Findings</div>
+            <div className="text-xs text-slate-500">
+              {isAppleHealth ? 'Health Categories' : 'Policy Findings'}
+            </div>
           </div>
         </div>
       </div>
@@ -365,13 +414,70 @@ export default function PolicySummaryPanel({
         </div>
       )}
 
-      {/* Top Findings */}
+      {/* Top Findings - Apple Health categories or standard findings */}
       <div className="px-6 py-4">
         <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">
-          Key Policy Findings
+          {isAppleHealth ? 'Apple Health Assessment' : 'Key Policy Findings'}
         </h3>
         
-        {topFindings.length === 0 ? (
+        {isAppleHealth && appleHealthSubScores.length > 0 ? (
+          // Apple Health Category Scores
+          <div className="space-y-2">
+            {appleHealthSubScores.map((score: SubScore, idx: number) => {
+              // Handle both backend formats: 'name' or 'category', 'max_points' or 'max_score'
+              const categoryKey = score.name?.replace('_score', '') || score.category || 'unknown';
+              const maxPts = score.max_points || score.max_score || 25;
+              const pct = maxPts > 0 ? (score.raw_score / maxPts) * 100 : 0;
+              const weightPct = (score.weight_pct || (score.weight ? score.weight * 100 : 0));
+              const isGood = pct >= 70;
+              const isModerate = pct >= 40 && pct < 70;
+              
+              // Handle notes as array or string
+              const notesText = Array.isArray(score.notes) 
+                ? score.notes[0] || '' 
+                : (score.notes || `${weightPct.toFixed(0)}% weight in HKRS calculation`);
+              
+              return (
+                <div
+                  key={idx}
+                  className="flex items-start gap-3 p-3 bg-slate-50 rounded-lg"
+                >
+                  <div className={`mt-0.5 flex-shrink-0 ${
+                    isGood ? 'text-emerald-500' : isModerate ? 'text-amber-500' : 'text-rose-500'
+                  }`}>
+                    {CATEGORY_ICONS[categoryKey] || <Activity className="w-4 h-4" />}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-sm font-medium text-slate-700">
+                        {CATEGORY_NAMES[categoryKey] || categoryKey.replace(/_/g, ' ')}
+                      </span>
+                      <span className={`text-xs font-medium px-2 py-0.5 rounded ${
+                        isGood ? 'bg-emerald-100 text-emerald-700' :
+                        isModerate ? 'bg-amber-100 text-amber-700' :
+                        'bg-rose-100 text-rose-700'
+                      }`}>
+                        {score.raw_score}/{maxPts} pts
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-600 mt-1">
+                      {notesText}
+                    </p>
+                    {/* Progress bar */}
+                    <div className="mt-2 h-1.5 bg-slate-200 rounded-full overflow-hidden">
+                      <div 
+                        className={`h-full rounded-full transition-all ${
+                          isGood ? 'bg-emerald-500' : isModerate ? 'bg-amber-500' : 'bg-rose-500'
+                        }`}
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : topFindings.length === 0 ? (
           <p className="text-sm text-slate-500 italic">
             No specific policy findings identified.
           </p>

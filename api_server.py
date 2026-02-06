@@ -89,6 +89,21 @@ except ImportError as e:
     logger.warning("Claims API router not available: %s", e)
 
 
+# Configure Azure Application Insights tracing for Foundry portal
+# This must be done early, before any OpenAI SDK clients are created
+try:
+    from app.tracing import configure_tracing, is_tracing_enabled
+    tracing_configured = configure_tracing()
+    if tracing_configured:
+        logger.info("🔍 Tracing enabled - view traces in Azure AI Foundry portal > Tracing")
+    else:
+        logger.info("ℹ️ Tracing not configured - set APPLICATIONINSIGHTS_CONNECTION_STRING to enable")
+except ImportError as e:
+    logger.warning("Tracing module not available: %s", e)
+except Exception as e:
+    logger.warning("Could not configure tracing: %s", e)
+
+
 # Initialize storage provider and database pool on startup
 @app.on_event("startup")
 async def startup_event():

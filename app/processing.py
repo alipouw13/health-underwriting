@@ -825,38 +825,87 @@ def convert_agent_output_to_legacy_format(
     # Build findings from agent execution records
     findings = []
     
-    # Get PolicyRiskAgent output if available
+    # Check for AppleHealthRiskAgent and extract sub_scores for meaningful findings
+    apple_health_sub_scores = []
+    hkrs_score = None
     for record in orchestrator_output.execution_records:
-        if record.agent_id == "PolicyRiskAgent":
+        if record.agent_id == "AppleHealthRiskAgent" and record.actual_outputs:
+            output = record.actual_outputs if isinstance(record.actual_outputs, dict) else {}
+            apple_health_sub_scores = output.get("sub_scores", [])
+            hkrs_score = output.get("hkrs") or output.get("hkrs_score")
+            break
+    
+    # For Apple Health apps, create findings from sub_scores
+    if apple_health_sub_scores:
+        category_names = {
+            "activity": ("Daily Activity", "HEALTH-ACTIVITY"),
+            "vo2_max": ("Cardio Fitness (VO₂ Max)", "HEALTH-FITNESS"),
+            "heart_health": ("Heart Health", "HEALTH-VITALS"),
+            "sleep_health": ("Sleep Quality", "HEALTH-SLEEP"),
+            "body_composition": ("Body Composition", "HEALTH-BODY"),
+            "mobility": ("Mobility & Balance", "HEALTH-MOBILITY"),
+        }
+        
+        for score in apple_health_sub_scores:
+            category = score.get("category", "unknown")
+            name_info = category_names.get(category, (category.replace("_", " ").title(), f"HEALTH-{category.upper()}"))
+            
+            raw = score.get("raw_score", 0)
+            max_pts = score.get("max_points", score.get("max_score", 25))
+            pct = (raw / max_pts * 100) if max_pts > 0 else 0
+            notes = score.get("notes", [])
+            notes_text = notes[0] if notes else f"{raw}/{max_pts} points scored"
+            
+            # Determine risk level based on percentage
+            if pct >= 70:
+                risk = "Low"
+            elif pct >= 40:
+                risk = "Moderate"
+            else:
+                risk = "High"
+            
             findings.append({
-                "category": "policy_risk",
-                "finding": record.output_summary,
-                "policy_id": "AGENT-POLICY-001",
-                "policy_name": "Multi-Agent Policy Assessment",
-                "risk_level": overall_risk,
-                "action": f"Risk level: {overall_risk}, Premium adjustment: {final_decision.premium_adjustment_pct:+.0f}%",
-                "rationale": "Determined by multi-agent underwriting workflow"
+                "category": "apple_health",
+                "finding": notes_text,
+                "policy_id": name_info[1],
+                "policy_name": name_info[0],
+                "risk_level": risk,
+                "action": f"Score: {raw}/{max_pts} pts ({score.get('weight_pct', score.get('weight', 0) * 100):.0f}% weight)",
+                "rationale": f"Based on Apple Health data"
             })
-        elif record.agent_id == "HealthDataAnalysisAgent":
-            findings.append({
-                "category": "health_analysis", 
-                "finding": record.output_summary,
-                "policy_id": "AGENT-HEALTH-001",
-                "policy_name": "Multi-Agent Health Analysis",
-                "risk_level": overall_risk,
-                "action": "Health risk signals analyzed",
-                "rationale": "Determined by HealthDataAnalysisAgent"
-            })
-        elif record.agent_id == "BiasAndFairnessAgent":
-            findings.append({
-                "category": "compliance",
-                "finding": record.output_summary,
-                "policy_id": "AGENT-BIAS-001", 
-                "policy_name": "Bias and Fairness Check",
-                "risk_level": "Low" if final_decision.bias_check_passed else "High",
-                "action": "Passed" if final_decision.bias_check_passed else "Review Required",
-                "rationale": "Determined by BiasAndFairnessAgent"
-            })
+    else:
+        # Fall back to generic agent findings for non-Apple Health apps
+        for record in orchestrator_output.execution_records:
+            if record.agent_id == "PolicyRiskAgent":
+                findings.append({
+                    "category": "policy_risk",
+                    "finding": record.output_summary,
+                    "policy_id": "AGENT-POLICY-001",
+                    "policy_name": "Multi-Agent Policy Assessment",
+                    "risk_level": overall_risk,
+                    "action": f"Risk level: {overall_risk}, Premium adjustment: {final_decision.premium_adjustment_pct:+.0f}%",
+                    "rationale": "Determined by multi-agent underwriting workflow"
+                })
+            elif record.agent_id == "HealthDataAnalysisAgent":
+                findings.append({
+                    "category": "health_analysis", 
+                    "finding": record.output_summary,
+                    "policy_id": "AGENT-HEALTH-001",
+                    "policy_name": "Multi-Agent Health Analysis",
+                    "risk_level": overall_risk,
+                    "action": "Health risk signals analyzed",
+                    "rationale": "Determined by HealthDataAnalysisAgent"
+                })
+            elif record.agent_id == "BiasAndFairnessAgent":
+                findings.append({
+                    "category": "compliance",
+                    "finding": record.output_summary,
+                    "policy_id": "AGENT-BIAS-001", 
+                    "policy_name": "Bias and Fairness Check",
+                    "risk_level": "Low" if final_decision.bias_check_passed else "High",
+                    "action": "Passed" if final_decision.bias_check_passed else "Review Required",
+                    "rationale": "Determined by BiasAndFairnessAgent"
+                })
     
     # Calculate loading percentage from premium adjustment
     if final_decision.premium_adjustment_pct <= 0:

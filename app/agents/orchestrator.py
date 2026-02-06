@@ -67,6 +67,17 @@ try:
 except ImportError:
     TOKEN_TRACKING_AVAILABLE = False
 
+# Tracing import for Azure AI Foundry portal (optional)
+try:
+    from app.tracing import get_tracer, add_span_attribute, add_span_event, is_tracing_enabled
+    TRACING_AVAILABLE = True
+except ImportError:
+    TRACING_AVAILABLE = False
+    def get_tracer(): return None
+    def add_span_attribute(k, v): pass
+    def add_span_event(n, a=None): pass
+    def is_tracing_enabled(): return False
+
 
 # =============================================================================
 # PROGRESS TRACKING
@@ -740,6 +751,21 @@ class OrchestratorAgent:
         workflow_id = str(uuid4())
         self.logger.info(f"Starting workflow {workflow_id}")
         
+        # Get tracer for Foundry portal tracing
+        tracer = get_tracer()
+        
+        # Start workflow span for tracing
+        if tracer and is_tracing_enabled():
+            with tracer.start_as_current_span("underwriting_workflow") as workflow_span:
+                workflow_span.set_attribute("workflow.id", workflow_id)
+                workflow_span.set_attribute("workflow.patient_id", input_data.get("patient_id", "unknown"))
+                workflow_span.set_attribute("workflow.application_id", input_data.get("application_id", "unknown"))
+                return await self._run_workflow_internal(input_data, workflow_id)
+        else:
+            return await self._run_workflow_internal(input_data, workflow_id)
+    
+    async def _run_workflow_internal(self, input_data: Dict[str, Any], workflow_id: str) -> OrchestratorOutput:
+        """Internal workflow execution (with or without tracing span)."""
         # Validate input
         validated_input = self.validate_input(input_data)
         
@@ -1501,6 +1527,10 @@ class OrchestratorAgent:
         self.logger.info("Step 1: Executing HealthDataAnalysisAgent%s", 
                         " (via Azure AI Foundry)" if self._use_foundry else " (local)")
         
+        # Add tracing span for this agent
+        add_span_event("agent_started", {"agent_id": "HealthDataAnalysisAgent", "step": 1})
+        add_span_attribute("agent.health_data_analysis.started", True)
+        
         # Extract biometrics for explicit passing to tools
         age = patient_profile.demographics.age
         height_cm = patient_profile.medical_history.height_cm or 170.0
@@ -1723,6 +1753,10 @@ Return JSON:
         """
         self.logger.info("Step 2: Executing PolicyRiskAgent%s",
                         " (via Azure AI Foundry)" if self._use_foundry else " (local)")
+        
+        # Add tracing span for this agent
+        add_span_event("agent_started", {"agent_id": "PolicyRiskAgent", "step": 2})
+        add_span_attribute("agent.policy_risk.started", True)
         
         # Get risk indicators from Step 1
         hda_output: HealthDataAnalysisOutput = context.get_output("HealthDataAnalysisAgent")
@@ -1988,6 +2022,10 @@ Criteria:"""
         """
         self.logger.info("Step 2: Executing AppleHealthRiskAgent%s",
                         " (via Azure AI Foundry)" if self._use_foundry else " (local)")
+        
+        # Add tracing span for this agent
+        add_span_event("agent_started", {"agent_id": "AppleHealthRiskAgent", "step": 2})
+        add_span_attribute("agent.apple_health_risk.started", True)
         
         # Get risk indicators from Step 1 (optional for context)
         hda_output: HealthDataAnalysisOutput = context.get_output("HealthDataAnalysisAgent")
@@ -3207,15 +3245,120 @@ Return JSON:
         Extracts health-related data from the LLM outputs and document markdown
         to create a HealthMetrics object that can be processed by agents.
         
-        Note: The HealthMetrics schema uses activity/heart_rate/sleep metrics,
-        not clinical data like blood pressure or cholesterol.
+        For Apple Health apps, uses the structured health_metrics from llm_outputs.
+        For traditional apps, simulates based on lifestyle factors.
         """
         from data.mock.schemas import (
-            ActivityMetrics, HeartRateMetrics, SleepMetrics, HealthTrends
+            ActivityMetrics, HeartRateMetrics, SleepMetrics, HealthTrends,
+            FitnessMetrics, MobilityMetrics, ExerciseMetrics, BodyMetrics
         )
         from datetime import date, timedelta
         
         llm_outputs = validated_input.llm_outputs or {}
+        
+        # Check if we have Apple Health data - use it directly
+        if "health_metrics" in llm_outputs and llm_outputs.get("is_apple_health"):
+            self.logger.info("Using Apple Health data from llm_outputs['health_metrics']")
+            hm = llm_outputs["health_metrics"]
+            today = date.today()
+            
+            # Extract nested data
+            activity_data = hm.get("activity", {})
+            fitness_data = hm.get("fitness", {})
+            hr_data = hm.get("heart_rate", {})
+            sleep_data = hm.get("sleep", {})
+            body_data = hm.get("body_metrics", {})
+            mobility_data = hm.get("mobility", {})
+            exercise_data = hm.get("exercise", {})
+            
+            return HealthMetrics(
+                patient_id=hm.get("patient_id", validated_input.patient_id),
+                data_source="apple_health",
+                collection_timestamp=datetime.now(timezone.utc),
+                
+                activity=ActivityMetrics(
+                    daily_steps_avg=int(activity_data.get("daily_steps_avg", 8000)),
+                    daily_active_minutes_avg=int(activity_data.get("daily_active_minutes_avg", 40)),
+                    daily_calories_burned_avg=int(activity_data.get("active_energy_burned_avg", 400)),
+                    weekly_exercise_sessions=int(exercise_data.get("workout_frequency_weekly", 3)),
+                    days_with_data=int(activity_data.get("days_with_data", 120)),
+                    measurement_period_days=180,
+                    last_recorded_date=today - timedelta(days=1),
+                    trend_6mo=activity_data.get("trend_6mo", "stable"),
+                ),
+                
+                heart_rate=HeartRateMetrics(
+                    resting_hr_avg=int(hr_data.get("resting_hr_avg", 68)),
+                    resting_hr_min=int(hr_data.get("resting_hr_avg", 68)) - 8,
+                    resting_hr_max=int(hr_data.get("resting_hr_avg", 68)) + 12,
+                    hrv_avg_ms=float(hr_data.get("hrv_avg_ms", 45)),
+                    elevated_hr_events=int(hr_data.get("elevated_hr_events", 0)),
+                    irregular_rhythm_events=int(hr_data.get("irregular_rhythm_events", 0)),
+                    days_with_data=int(hr_data.get("days_with_data", 90)),
+                    measurement_period_days=180,
+                    last_recorded_date=today - timedelta(days=1),
+                ),
+                
+                sleep=SleepMetrics(
+                    avg_sleep_duration_hours=float(sleep_data.get("avg_sleep_duration_hours", 7.2)),
+                    avg_time_to_sleep_minutes=15,
+                    sleep_efficiency_pct=88.0,
+                    deep_sleep_pct=18.0,
+                    rem_sleep_pct=22.0,
+                    light_sleep_pct=60.0,
+                    avg_awakenings_per_night=1.5,
+                    nights_with_data=int(sleep_data.get("nights_with_data", 90)),
+                    measurement_period_days=180,
+                    last_recorded_date=today - timedelta(days=1),
+                    sleep_consistency_variance_hours=float(sleep_data.get("sleep_consistency_variance_hours", 0.8)),
+                ),
+                
+                # Include fitness metrics (VO2 Max) - critical for Apple Health scoring
+                fitness=FitnessMetrics(
+                    vo2_max=float(fitness_data.get("vo2_max")) if fitness_data.get("vo2_max") else None,
+                    vo2_max_readings=int(fitness_data.get("vo2_max_readings", 5)),
+                    cardio_fitness_level=fitness_data.get("cardio_fitness_level", "Good"),
+                ),
+                
+                # Include body metrics - critical for Apple Health scoring
+                body_metrics=BodyMetrics(
+                    bmi=body_data.get("bmi", 24.5),
+                    bmi_trend=body_data.get("bmi_trend", "stable"),
+                    weight_kg=body_data.get("weight_kg", 75),
+                    height_cm=body_data.get("height_cm", 175),
+                ),
+                
+                # Include mobility metrics - critical for Apple Health scoring
+                mobility=MobilityMetrics(
+                    walking_speed_avg=mobility_data.get("walking_speed_avg", 1.3),
+                    walking_steadiness=mobility_data.get("walking_steadiness", "normal"),
+                    double_support_time_pct=mobility_data.get("double_support_time_pct", 25),
+                ),
+                
+                # Include exercise metrics
+                exercise=ExerciseMetrics(
+                    workout_frequency_weekly=exercise_data.get("workout_frequency_weekly", 3),
+                    workout_avg_duration_minutes=exercise_data.get("workout_avg_duration_minutes", 45),
+                    workout_types=exercise_data.get("workout_types", ["walking", "running"]),
+                ),
+                
+                trends=HealthTrends(
+                    activity_trend_weekly="stable",
+                    activity_trend_monthly=activity_data.get("trend_6mo", "stable"),
+                    resting_hr_trend_weekly="stable",
+                    resting_hr_trend_monthly="stable",
+                    sleep_quality_trend_weekly="stable",
+                    sleep_quality_trend_monthly="stable",
+                    overall_health_trajectory="stable",
+                    significant_changes=[],
+                ),
+                
+                consent_verified=True,
+                data_anonymized=False,
+            )
+        
+        # Fall back to traditional document extraction for non-Apple Health apps
+        self.logger.info("Using traditional document extraction for health metrics")
         
         # Extract values from LLM outputs (customer_profile section)
         raw_customer_profile = {}
