@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { Sparkles, FileText, User, Shield, LogOut, Check } from 'lucide-react';
+import { Sparkles, FileText, User, Shield, LogOut, Check, Smartphone } from 'lucide-react';
 import TopNav from '@/components/TopNav';
 import PatientHeader from '@/components/PatientHeader';
 import PatientSummary from '@/components/PatientSummary';
@@ -19,6 +19,7 @@ import LoadingSpinner from '@/components/LoadingSpinner';
 import PolicySummaryPanel from '@/components/PolicySummaryPanel';
 import PolicyReportModal from '@/components/PolicyReportModal';
 import ChatDrawer from '@/components/ChatDrawer';
+import AppleHealthDataPanel from '@/components/AppleHealthDataPanel';
 import { ClaimsSummary, MedicalRecordsPanel, EligibilityPanel } from '@/components/claims';
 import LifeHealthClaimsOverview from '@/components/claims/LifeHealthClaimsOverview';
 import PropertyCasualtyClaimsOverview from '@/components/claims/PropertyCasualtyClaimsOverview';
@@ -230,6 +231,11 @@ export default function Home() {
   const renderUnderwritingOverview = () => {
     if (!selectedApp) return null;
     
+    // Check if this is an Apple Health application
+    const isAppleHealthApp = selectedApp?.llm_outputs?.is_apple_health === true || 
+                              selectedApp?.llm_outputs?.workflow_type === 'apple_health' ||
+                              selectedApp?.llm_outputs?.source === 'end_user';
+    
     const handleRerunAnalysis = async () => {
       if (!selectedApp) return;
       try {
@@ -246,6 +252,70 @@ export default function Home() {
       }
     };
     
+    // Apple Health Application Layout - NO lab results, family history, substance use
+    if (isAppleHealthApp) {
+      return (
+        <div className="flex-1 overflow-auto p-6">
+          <div className="max-w-7xl mx-auto space-y-6">
+            {/* Demo Notice for Apple Health */}
+            <div className="bg-gradient-to-r from-red-50 to-pink-50 border border-red-200 rounded-xl p-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-red-100 rounded-lg">
+                  <Smartphone className="w-5 h-5 text-red-500" />
+                </div>
+                <div>
+                  <p className="font-medium text-red-900">Apple Health Connected Application</p>
+                  <p className="text-sm text-red-700">
+                    This application uses HealthKit data for HKRS-based underwriting. No traditional medical records.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Top Section: Patient Summary + Policy Analysis */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Patient Summary */}
+              <PatientSummary 
+                application={selectedApp} 
+                onPolicyClick={(policyId) => {
+                  setIsPolicyReportOpen(true);
+                }}
+              />
+              
+              {/* Policy Summary Panel (HKRS-based risk analysis) */}
+              <PolicySummaryPanel
+                application={selectedApp}
+                onViewFullReport={() => setIsPolicyReportOpen(true)}
+                onRiskAnalysisComplete={() => loadApplication(selectedApp.id)}
+              />
+            </div>
+
+            {/* Section Divider */}
+            <div className="flex items-center gap-4 py-2">
+              <div className="flex-1 border-t border-slate-200" />
+              <div className="flex items-center gap-2 text-xs font-medium text-slate-400 uppercase tracking-wider">
+                <Smartphone className="w-4 h-4" />
+                <span>Apple Health Data</span>
+              </div>
+              <div className="flex-1 border-t border-slate-200" />
+            </div>
+
+            {/* Apple Health Data Panel - All 7 Categories */}
+            <AppleHealthDataPanel application={selectedApp} />
+          </div>
+          
+          {/* Policy Report Modal */}
+          <PolicyReportModal
+            isOpen={isPolicyReportOpen}
+            onClose={() => setIsPolicyReportOpen(false)}
+            application={selectedApp}
+            onRerunAnalysis={handleRerunAnalysis}
+          />
+        </div>
+      );
+    }
+    
+    // Traditional Admin Application Layout
     return (
       <div className="flex-1 overflow-auto p-6">
         <div className="max-w-7xl mx-auto space-y-6">

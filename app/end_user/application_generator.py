@@ -1,11 +1,12 @@
 """
-LLM-based Application Form Generator
+Apple Health Application Form Generator
 
-Generates realistic life insurance application forms using LLM
-based on user profile and Apple Health data.
+Generates life insurance application forms focused on Apple Health data.
+NO lab results, family history, or substance use - only HealthKit metrics.
 
-The generated application document is then processed through
-the same Content Understanding pipeline as admin uploads.
+The generated application uses the 7 Apple Health categories:
+- Activity (25%), Fitness (20%), Vitals (20%), Sleep (15%), 
+- Body Metrics (10%), Mobility (10%), Exercise
 """
 
 import json
@@ -20,113 +21,79 @@ from app.config import load_settings
 logger = logging.getLogger("underwriting_assistant")
 
 
-SAMPLE_APPLICATION_TEMPLATE = """
-# Life Insurance Application Form
+# Apple Health focused application template
+APPLE_HEALTH_APPLICATION_TEMPLATE = """
+# Life Insurance Application
+## Apple Health Connected Assessment
 
-## Applicant Information
-- **Full Name**: John Smith
-- **Date of Birth**: 1985-03-15
-- **Age**: 40
-- **Gender**: Male
-- **Address**: 123 Main Street, Anytown, CA 90210
-- **Phone**: (555) 123-4567
-- **Email**: john.smith@email.com
-- **Occupation**: Software Engineer
-- **Employer**: Tech Company Inc.
-- **Annual Income**: $125,000
+### Applicant Information
+- **Full Name**: {full_name}
+- **Date of Birth**: {dob}
+- **Age**: {age} years
+- **Biological Sex**: {gender}
 
-## Policy Details
-- **Policy Type Requested**: Term Life Insurance
-- **Coverage Amount Requested**: $500,000
-- **Term Length**: 20 years
-- **Beneficiary**: Jane Smith (Spouse)
+### Policy Request
+- **Policy Type**: {policy_type}
+- **Coverage Amount**: ${coverage_amount:,.0f}
 
-## Health History
+---
 
-### Current Health Status
-- **Height**: 178 cm
-- **Weight**: 82 kg
-- **BMI**: 25.9
-- **Blood Pressure**: 122/78 mmHg
-- **Resting Heart Rate**: 72 bpm
+## Apple Health Data Summary
+*Data synced from Apple HealthKit - {data_period} days of measurements*
 
-### Medical History
-- No history of heart disease
-- No history of cancer
-- No history of diabetes
-- No major surgeries in past 5 years
+### 1. Activity (25% HKRS Weight)
+- **Daily Steps Average**: {daily_steps:,} steps/day
+- **Active Energy Burned**: {active_energy:.0f} kcal/day
+- **Activity Trend (6 months)**: {activity_trend}
+- **Days with Data**: {activity_days} days
 
-### Lifestyle Factors
-- **Smoking Status**: Non-smoker
-- **Alcohol Consumption**: Social drinker (2-3 drinks per week)
-- **Exercise Frequency**: 3-4 times per week
-- **Average Daily Steps**: 8,500
+### 2. Fitness (20% HKRS Weight)
+- **VO2 Max**: {vo2_max:.1f} mL/kg/min
+- **Cardio Fitness Level**: {fitness_level}
+- **VO2 Max Readings**: {vo2_readings} measurements
 
-### Family Medical History
-- Father: Hypertension, diagnosed at age 55
-- Mother: No significant conditions
+### 3. Vitals (20% HKRS Weight)
+- **Resting Heart Rate**: {resting_hr} bpm
+- **Heart Rate Variability (HRV)**: {hrv_avg:.0f} ms
+- **Irregular Rhythm Events**: {irregular_events}
+- **Days with Data**: {vitals_days} days
 
-### Current Medications
-- None
+### 4. Sleep (15% HKRS Weight)
+- **Average Sleep Duration**: {sleep_hours:.1f} hours/night
+- **Sleep Consistency**: ±{sleep_variance:.1f} hours variance
+- **Nights with Data**: {sleep_days} nights
 
-### Recent Lab Results
-- Total Cholesterol: 195 mg/dL
-- Fasting Glucose: 92 mg/dL
+### 5. Body Metrics (10% HKRS Weight)
+- **Current BMI**: {bmi:.1f}
+- **Weight**: {weight_kg:.1f} kg
+- **Height**: {height_cm:.1f} cm
+- **BMI Trend**: {bmi_trend}
 
-## Connected Health Data (Apple Health)
-The applicant has authorized access to their Apple Health data which shows:
-- **30-Day Average Daily Steps**: 8,500
-- **Average Resting Heart Rate**: 72 bpm
-- **Average Sleep Duration**: 7.2 hours
-- **Heart Rate Variability (HRV)**: 45 ms
-- **Activity Trend**: Stable
-- **Sleep Quality**: Good
+### 6. Mobility (10% HKRS Weight)
+- **Walking Speed**: {walking_speed:.2f} m/s
+- **Walking Steadiness**: {walking_steadiness}
+- **Double Support Time**: {double_support:.0f}%
 
-## Declarations
-I hereby declare that all information provided is true and complete to the best of my knowledge.
+### 7. Exercise
+- **Weekly Workout Sessions**: {workout_frequency} sessions
+- **Average Workout Duration**: {workout_duration} minutes
+- **Workout Types**: {workout_types}
 
-**Signature**: John Smith
-**Date**: 2024-01-15
+---
+
+## Data Quality Assessment
+- **Measurement Period**: {data_period} days
+- **Last Sync Date**: {last_sync_date}
+- **Data Completeness**: {data_completeness}
+
+## Consent & Privacy
+✓ Applicant has authorized access to Apple Health data
+✓ Data is anonymized and used only for underwriting assessment
+✓ No reproductive health, mental health, or location data accessed
+
+---
+*Application generated from Apple HealthKit data on {generation_date}*
 """
-
-GENERATION_PROMPT = """You are a life insurance application form generator. Generate a realistic, detailed life insurance application form based on the provided user data.
-
-The application should follow this exact structure (use the template format):
-
-1. **Applicant Information** - Name, DOB, age, gender, contact, occupation, income
-2. **Policy Details** - Type, coverage amount, term, beneficiary  
-3. **Health History**:
-   - Current Health Status (height, weight, BMI, vitals)
-   - Medical History (conditions, surgeries)
-   - Lifestyle Factors (smoking, alcohol, exercise)
-   - Family Medical History
-   - Current Medications
-   - Recent Lab Results
-4. **Connected Health Data (Apple Health)** - Real-time health metrics
-5. **Declarations** - Signature and date
-
-## User Data to Use:
-
-### Personal Information:
-{personal_info}
-
-### Apple Health Metrics:
-{health_metrics}
-
-### Policy Request:
-{policy_request}
-
-## Important Instructions:
-1. Generate REALISTIC but SYNTHETIC data for any fields not provided
-2. Make the health history consistent with the Apple Health metrics
-3. Include some minor health findings to make it realistic (slightly elevated BMI, borderline cholesterol, family history of common conditions)
-4. Do NOT make everything perfect - real applications have some risk factors
-5. Use the exact markdown format with headers and bullet points
-6. Include realistic lab values that align with the health metrics
-7. Add 1-2 minor medical conditions or lifestyle factors based on the age and health metrics
-8. Generate a realistic occupation and income based on the age
-
-Generate ONLY the application form document in markdown format. No explanations or additional text."""
 
 
 async def generate_application_document(
@@ -136,160 +103,117 @@ async def generate_application_document(
     coverage_amount: float = 500000,
 ) -> str:
     """
-    Generate a realistic life insurance application document using LLM.
+    Generate an Apple Health-focused application document.
     
-    Args:
-        user_profile: User's personal information (name, DOB, gender, etc.)
-        apple_health_data: Mock Apple Health metrics
-        policy_type: Type of insurance policy requested
-        coverage_amount: Coverage amount requested
-        
-    Returns:
-        Markdown-formatted application document
+    NO lab results, family history, or substance use - ONLY HealthKit data.
     """
     logger.info(
-        "Generating application document for user %s %s",
+        "Generating Apple Health application for user %s %s",
         user_profile.get("first_name", "Unknown"),
         user_profile.get("last_name", "")
     )
     
-    # Format personal info
-    personal_info = f"""- Full Name: {user_profile.get('first_name', 'Unknown')} {user_profile.get('last_name', '')}
-- Date of Birth: {user_profile.get('date_of_birth', 'Unknown')}
-- Age: {user_profile.get('age', 35)}
-- Biological Sex: {user_profile.get('biological_sex', 'Unknown')}"""
-
-    # Format health metrics
-    health_metrics = f"""- Average Daily Steps: {apple_health_data.get('daily_steps_avg', 8000)}
-- Resting Heart Rate: {apple_health_data.get('resting_hr_avg', 68)} bpm
-- Average Sleep Duration: {apple_health_data.get('avg_sleep_duration_hours', 7.2)} hours
-- BMI: {apple_health_data.get('bmi', 24.5)}
-- Height: {apple_health_data.get('height_cm', 170)} cm
-- Weight: {apple_health_data.get('weight_kg', 70)} kg
-- Heart Rate Variability: {apple_health_data.get('hrv_avg_ms', 42)} ms
-- Weekly Exercise Sessions: {apple_health_data.get('weekly_exercise_sessions', 3)}
-- Activity Trend: {apple_health_data.get('activity_trend_weekly', 'stable')}
-- Elevated Heart Rate Events (30 days): {apple_health_data.get('elevated_hr_events', 0)}
-- Sleep Efficiency: {apple_health_data.get('sleep_efficiency_pct', 88)}%"""
-
-    # Format policy request
-    policy_request = f"""- Policy Type: {policy_type.replace('_', ' ').title()}
-- Coverage Amount: ${coverage_amount:,.0f}"""
-
-    # Build the prompt
-    prompt = GENERATION_PROMPT.format(
-        personal_info=personal_info,
-        health_metrics=health_metrics,
-        policy_request=policy_request,
+    # Extract activity data
+    activity = apple_health_data.get("activity", {})
+    daily_steps = activity.get("daily_steps_avg", apple_health_data.get("daily_steps_avg", 8000))
+    active_energy = activity.get("active_energy_burned_avg", apple_health_data.get("active_energy_burned_avg", 400))
+    activity_trend = activity.get("trend_6mo", apple_health_data.get("activity_trend_weekly", "stable")).replace("_", " ").title()
+    activity_days = activity.get("days_with_data", 120)
+    
+    # Extract fitness data
+    fitness = apple_health_data.get("fitness", {})
+    vo2_max = fitness.get("vo2_max", apple_health_data.get("vo2_max", 38.0)) or 38.0
+    vo2_readings = fitness.get("vo2_max_readings", 5)
+    
+    # Determine fitness level based on VO2 max
+    if vo2_max >= 45:
+        fitness_level = "Excellent"
+    elif vo2_max >= 38:
+        fitness_level = "Good"
+    elif vo2_max >= 30:
+        fitness_level = "Average"
+    else:
+        fitness_level = "Below Average"
+    
+    # Extract vitals data
+    heart_rate = apple_health_data.get("heart_rate", {})
+    resting_hr = heart_rate.get("resting_hr_avg", apple_health_data.get("resting_hr_avg", 68))
+    hrv_avg = heart_rate.get("hrv_avg_ms", apple_health_data.get("hrv_avg_ms", 42)) or 42
+    irregular_events = heart_rate.get("irregular_rhythm_events", 0)
+    vitals_days = heart_rate.get("days_with_data", 90)
+    
+    # Extract sleep data
+    sleep = apple_health_data.get("sleep", {})
+    sleep_hours = sleep.get("avg_sleep_duration_hours", apple_health_data.get("avg_sleep_duration_hours", 7.2)) or 7.2
+    sleep_variance = sleep.get("sleep_consistency_variance_hours", 0.8) or 0.8
+    sleep_days = sleep.get("nights_with_data", 100)
+    
+    # Extract body metrics
+    body = apple_health_data.get("body_metrics", {})
+    bmi = body.get("bmi", apple_health_data.get("bmi", 24.5)) or 24.5
+    weight_kg = body.get("weight_kg", apple_health_data.get("weight_kg", 75.0)) or 75.0
+    height_cm = body.get("height_cm", apple_health_data.get("height_cm", 175.0)) or 175.0
+    bmi_trend = body.get("bmi_trend", "stable").replace("_", " ").title()
+    
+    # Extract mobility data
+    mobility = apple_health_data.get("mobility", {})
+    walking_speed = mobility.get("walking_speed_avg", 1.3) or 1.3
+    walking_steadiness = mobility.get("walking_steadiness", "normal").replace("_", " ").title()
+    double_support = mobility.get("double_support_time_pct", 25) or 25
+    
+    # Extract exercise data
+    exercise = apple_health_data.get("exercise", {})
+    workout_frequency = exercise.get("workout_frequency_weekly", apple_health_data.get("weekly_exercise_sessions", 3)) or 3
+    workout_duration = exercise.get("workout_avg_duration_minutes", 45) or 45
+    workout_types_list = exercise.get("workout_types", ["walking", "running"])
+    workout_types = ", ".join(workout_types_list) if isinstance(workout_types_list, list) else str(workout_types_list)
+    
+    # Build the application document
+    full_name = f"{user_profile.get('first_name', 'Unknown')} {user_profile.get('last_name', '')}".strip()
+    
+    document = APPLE_HEALTH_APPLICATION_TEMPLATE.format(
+        full_name=full_name,
+        dob=user_profile.get("date_of_birth", "Unknown"),
+        age=user_profile.get("age", 35),
+        gender=str(user_profile.get("biological_sex", "Unknown")).capitalize(),
+        policy_type=policy_type.replace("_", " ").title(),
+        coverage_amount=coverage_amount,
+        data_period=365,
+        daily_steps=daily_steps,
+        active_energy=active_energy,
+        activity_trend=activity_trend,
+        activity_days=activity_days,
+        vo2_max=vo2_max,
+        fitness_level=fitness_level,
+        vo2_readings=vo2_readings,
+        resting_hr=resting_hr,
+        hrv_avg=hrv_avg,
+        irregular_events=irregular_events,
+        vitals_days=vitals_days,
+        sleep_hours=sleep_hours,
+        sleep_variance=sleep_variance,
+        sleep_days=sleep_days,
+        bmi=bmi,
+        weight_kg=weight_kg,
+        height_cm=height_cm,
+        bmi_trend=bmi_trend,
+        walking_speed=walking_speed,
+        walking_steadiness=walking_steadiness,
+        double_support=double_support,
+        workout_frequency=workout_frequency,
+        workout_duration=workout_duration,
+        workout_types=workout_types,
+        data_completeness="High" if activity_days >= 90 else "Medium" if activity_days >= 30 else "Low",
+        last_sync_date=datetime.now().strftime("%Y-%m-%d"),
+        generation_date=datetime.now().strftime("%Y-%m-%d %H:%M"),
     )
     
-    try:
-        # Call LLM to generate the application
-        settings = load_settings()
-        response = chat_completion(
-            settings=settings.openai,
-            messages=[
-                {"role": "system", "content": "You are a life insurance application form generator. Generate realistic, detailed applications based on user data."},
-                {"role": "user", "content": prompt},
-            ],
-            temperature=0.7,  # Some creativity for realistic variation
-            max_tokens=2000,
-        )
-        
-        # Extract content from response
-        generated_doc = response.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
-        
-        # Ensure it starts with a proper header
-        if not generated_doc.startswith("# "):
-            generated_doc = "# Life Insurance Application Form\n\n" + generated_doc
-        
-        logger.info(
-            "Generated application document (%d characters) for %s %s",
-            len(generated_doc),
-            user_profile.get("first_name", "Unknown"),
-            user_profile.get("last_name", "")
-        )
-        
-        return generated_doc
-        
-    except Exception as e:
-        logger.error("Failed to generate application document: %s", e, exc_info=True)
-        # Fall back to template-based generation
-        return _generate_fallback_document(user_profile, apple_health_data, policy_type, coverage_amount)
-
-
-def _generate_fallback_document(
-    user_profile: Dict[str, Any],
-    apple_health_data: Dict[str, Any],
-    policy_type: str,
-    coverage_amount: float,
-) -> str:
-    """Generate a template-based fallback document if LLM fails."""
+    logger.info(
+        "Generated Apple Health application (%d chars) for %s",
+        len(document), full_name
+    )
     
-    full_name = f"{user_profile.get('first_name', 'Unknown')} {user_profile.get('last_name', '')}"
-    dob = user_profile.get('date_of_birth', 'Unknown')
-    age = user_profile.get('age', 35)
-    gender = user_profile.get('biological_sex', 'Unknown')
-    
-    bmi = apple_health_data.get('bmi', 24.5)
-    height = apple_health_data.get('height_cm', 170)
-    weight = apple_health_data.get('weight_kg', 70)
-    resting_hr = apple_health_data.get('resting_hr_avg', 68)
-    daily_steps = apple_health_data.get('daily_steps_avg', 8000)
-    sleep_hours = apple_health_data.get('avg_sleep_duration_hours', 7.2)
-    
-    return f"""# Life Insurance Application Form
-
-## Applicant Information
-- **Full Name**: {full_name}
-- **Date of Birth**: {dob}
-- **Age**: {age}
-- **Gender**: {gender.capitalize() if isinstance(gender, str) else gender}
-- **Occupation**: Professional
-- **Annual Income**: $75,000
-
-## Policy Details
-- **Policy Type Requested**: {policy_type.replace('_', ' ').title()}
-- **Coverage Amount Requested**: ${coverage_amount:,.0f}
-- **Term Length**: 20 years
-
-## Health History
-
-### Current Health Status
-- **Height**: {height} cm
-- **Weight**: {weight} kg
-- **BMI**: {bmi:.1f}
-- **Resting Heart Rate**: {resting_hr} bpm
-
-### Medical History
-- No significant medical history reported
-- No major surgeries
-
-### Lifestyle Factors
-- **Smoking Status**: Non-smoker
-- **Alcohol Consumption**: Occasional
-- **Exercise Frequency**: Regular ({apple_health_data.get('weekly_exercise_sessions', 3)} sessions/week)
-- **Average Daily Steps**: {daily_steps:,}
-
-### Family Medical History
-- No significant family history reported
-
-### Current Medications
-- None reported
-
-## Connected Health Data (Apple Health)
-- **30-Day Average Daily Steps**: {daily_steps:,}
-- **Average Resting Heart Rate**: {resting_hr} bpm
-- **Average Sleep Duration**: {sleep_hours:.1f} hours
-- **Heart Rate Variability (HRV)**: {apple_health_data.get('hrv_avg_ms', 42)} ms
-- **Activity Trend**: {apple_health_data.get('activity_trend_weekly', 'stable').capitalize()}
-- **Sleep Efficiency**: {apple_health_data.get('sleep_efficiency_pct', 88)}%
-
-## Declarations
-I hereby declare that all information provided is true and complete to the best of my knowledge.
-
-**Date**: {datetime.now().strftime('%Y-%m-%d')}
-"""
+    return document
 
 
 async def generate_and_extract_application(
@@ -299,20 +223,18 @@ async def generate_and_extract_application(
     coverage_amount: float = 500000,
 ) -> Dict[str, Any]:
     """
-    Generate application document and extract structured data.
+    Generate Apple Health application document and extract structured data.
     
-    This simulates what Content Understanding would do:
-    1. Generate the application document (like receiving a PDF)
-    2. Extract structured data from it (like CU extraction)
+    IMPORTANT: This generates data for APPLE HEALTH workflow ONLY.
+    NO lab results, family history, substance use, or medical history.
+    ONLY the 7 Apple Health categories are included.
     
     Returns a dict with:
     - document_markdown: The generated application text
-    - llm_outputs: Structured extracted data
+    - llm_outputs: Structured extracted data (Apple Health only)
     - extracted_fields: Key fields for display
     """
-    import random
-    
-    # Generate the application document
+    # Generate the Apple Health application document
     document_markdown = await generate_application_document(
         user_profile=user_profile,
         apple_health_data=apple_health_data,
@@ -320,34 +242,101 @@ async def generate_and_extract_application(
         coverage_amount=coverage_amount,
     )
     
-    # Build structured llm_outputs similar to what extraction produces
+    # Build structured llm_outputs - APPLE HEALTH DATA ONLY
     full_name = f"{user_profile.get('first_name', 'Unknown')} {user_profile.get('last_name', '')}".strip()
     age = user_profile.get("age", 35)
     gender = user_profile.get("biological_sex", "unknown")
-    bmi = apple_health_data.get("bmi", 24.5)
     
-    # Generate realistic occupation based on age
-    occupations = [
-        "Software Engineer", "Marketing Manager", "Healthcare Professional",
-        "Financial Analyst", "Teacher", "Sales Executive", "Consultant",
-        "Business Owner", "Project Manager", "Engineer"
-    ]
-    occupation = random.choice(occupations)
+    # Extract health data from nested structure or flat structure
+    activity = apple_health_data.get("activity", {})
+    fitness = apple_health_data.get("fitness", {})
+    heart_rate = apple_health_data.get("heart_rate", {})
+    sleep = apple_health_data.get("sleep", {})
+    body = apple_health_data.get("body_metrics", {})
+    mobility = apple_health_data.get("mobility", {})
+    exercise = apple_health_data.get("exercise", {})
     
-    # Generate realistic lab values based on BMI and age
-    base_cholesterol = 180 + (bmi - 22) * 3 + (age - 30) * 0.5
-    cholesterol_total = round(base_cholesterol + random.uniform(-15, 15), 1)
-    glucose_fasting = round(88 + (bmi - 22) * 1.5 + random.uniform(-5, 10), 1)
+    # Get values with fallbacks
+    bmi = body.get("bmi", apple_health_data.get("bmi", 24.5)) or 24.5
+    daily_steps = activity.get("daily_steps_avg", apple_health_data.get("daily_steps_avg", 8000)) or 8000
+    resting_hr = heart_rate.get("resting_hr_avg", apple_health_data.get("resting_hr_avg", 68)) or 68
+    vo2_max = fitness.get("vo2_max", apple_health_data.get("vo2_max", 38.0)) or 38.0
+    sleep_hours = sleep.get("avg_sleep_duration_hours", apple_health_data.get("avg_sleep_duration_hours", 7.2)) or 7.2
     
-    # Determine smoking status based on health metrics
-    smoking_status = "non-smoker"
-    if apple_health_data.get("resting_hr_avg", 68) > 80:
-        smoking_status = random.choice(["non-smoker", "former smoker"])
+    # Determine fitness level
+    if vo2_max >= 45:
+        fitness_level = "Excellent"
+    elif vo2_max >= 38:
+        fitness_level = "Good"
+    elif vo2_max >= 30:
+        fitness_level = "Average"
+    else:
+        fitness_level = "Below Average"
     
-    # Build patient summary text
-    summary_text = f"{full_name} is a {age}-year-old {gender} {occupation} with a {'low' if bmi < 25 else 'moderate' if bmi < 30 else 'elevated'} BMI of {bmi:.1f}. "
-    summary_text += f"They are a {smoking_status} who exercises regularly with an average of {apple_health_data.get('daily_steps_avg', 8000):,} daily steps. "
-    summary_text += f"Lab results show total cholesterol of {cholesterol_total} mg/dL and fasting glucose of {glucose_fasting} mg/dL."
+    # Build Apple Health-focused patient summary
+    summary_text = f"{full_name} is a {age}-year-old {gender} with a BMI of {bmi:.1f}. "
+    summary_text += f"Apple Health shows an average of {daily_steps:,} daily steps with a resting heart rate of {resting_hr} bpm. "
+    summary_text += f"VO2 Max indicates {fitness_level.lower()} cardio fitness at {vo2_max:.1f} mL/kg/min. "
+    summary_text += f"Average sleep duration is {sleep_hours:.1f} hours per night."
+    
+    # Structure health metrics for the 7 categories
+    structured_health_metrics = {
+        "patient_id": user_profile.get("user_id", "unknown"),
+        "data_source": "apple_health",
+        
+        # 1. Activity (25% weight)
+        "activity": {
+            "daily_steps_avg": activity.get("daily_steps_avg", apple_health_data.get("daily_steps_avg", 8000)),
+            "active_energy_burned_avg": activity.get("active_energy_burned_avg", 400),
+            "days_with_data": activity.get("days_with_data", 120),
+            "trend_6mo": activity.get("trend_6mo", "stable"),
+        },
+        
+        # 2. Fitness (20% weight)
+        "fitness": {
+            "vo2_max": vo2_max,
+            "vo2_max_readings": fitness.get("vo2_max_readings", 5),
+            "cardio_fitness_level": fitness_level,
+        },
+        
+        # 3. Vitals (20% weight)
+        "heart_rate": {
+            "resting_hr_avg": resting_hr,
+            "hrv_avg_ms": heart_rate.get("hrv_avg_ms", apple_health_data.get("hrv_avg_ms", 42)),
+            "elevated_hr_events": heart_rate.get("elevated_hr_events", 0),
+            "irregular_rhythm_events": heart_rate.get("irregular_rhythm_events", 0),
+            "days_with_data": heart_rate.get("days_with_data", 90),
+        },
+        
+        # 4. Sleep (15% weight)
+        "sleep": {
+            "avg_sleep_duration_hours": sleep_hours,
+            "sleep_consistency_variance_hours": sleep.get("sleep_consistency_variance_hours", 0.8),
+            "nights_with_data": sleep.get("nights_with_data", 100),
+        },
+        
+        # 5. Body Metrics (10% weight)
+        "body_metrics": {
+            "bmi": bmi,
+            "bmi_trend": body.get("bmi_trend", "stable"),
+            "weight_kg": body.get("weight_kg", apple_health_data.get("weight_kg", 75)),
+            "height_cm": body.get("height_cm", apple_health_data.get("height_cm", 175)),
+        },
+        
+        # 6. Mobility (10% weight)
+        "mobility": {
+            "walking_speed_avg": mobility.get("walking_speed_avg", 1.3),
+            "walking_steadiness": mobility.get("walking_steadiness", "normal"),
+            "double_support_time_pct": mobility.get("double_support_time_pct", 25),
+        },
+        
+        # 7. Exercise
+        "exercise": {
+            "workout_frequency_weekly": exercise.get("workout_frequency_weekly", 3),
+            "workout_avg_duration_minutes": exercise.get("workout_avg_duration_minutes", 45),
+            "workout_types": exercise.get("workout_types", ["walking", "running"]),
+        },
+    }
     
     llm_outputs = {
         "application_summary": {
@@ -358,18 +347,14 @@ async def generate_and_extract_application(
                     "date_of_birth": str(user_profile.get("date_of_birth", "")),
                     "age": age,
                     "gender": gender,
-                    "occupation": occupation,
-                    "smoking_status": smoking_status,
-                    "alcohol_use": "occasional",
-                    "summary": summary_text,  # Summary inside parsed for PatientSummary component
+                    "summary": summary_text,
                     "key_fields": [
                         {"label": "Full Name", "value": full_name},
                         {"label": "Age", "value": str(age)},
-                        {"label": "Gender", "value": gender.capitalize()},
-                        {"label": "Occupation", "value": occupation},
+                        {"label": "Gender", "value": str(gender).capitalize()},
                     ],
                 },
-                "summary": summary_text,  # Also keep at this level for backward compatibility
+                "summary": summary_text,
             },
         },
         "patient_summary": {
@@ -386,127 +371,27 @@ async def generate_and_extract_application(
             "date_of_birth": str(user_profile.get("date_of_birth", "")),
             "age": age,
             "gender": gender,
-            "height_cm": round(apple_health_data.get("height_cm", 170), 2),
-            "weight_kg": round(apple_health_data.get("weight_kg", 70), 2),
-            "bmi": round(bmi, 2),
-            "occupation": occupation,
+            "height_cm": body.get("height_cm", apple_health_data.get("height_cm", 175)),
+            "weight_kg": body.get("weight_kg", apple_health_data.get("weight_kg", 75)),
+            "bmi": bmi,
             "policy_type_requested": policy_type,
             "coverage_amount_requested": coverage_amount,
         },
-        "health_metrics": apple_health_data,
-        # Medical summary with lab results - structured for panel extraction
-        "medical_summary": {
-            # Cholesterol data - structured for LabResultsPanel
-            "high_cholesterol": {
-                "parsed": {
-                    "lipid_panels": [
-                        {
-                            "total_cholesterol": cholesterol_total,
-                            "ldl": round(cholesterol_total * 0.6 + random.uniform(-10, 10), 1),  # ~60% of total
-                            "hdl": round(50 + random.uniform(-5, 15), 1),  # 45-65 typical
-                            "triglycerides": round(120 + (bmi - 22) * 5 + random.uniform(-20, 20), 1),
-                            "date": datetime.now().strftime("%Y-%m-%d"),
-                        }
-                    ],
-                    "summary": f"Total cholesterol: {cholesterol_total} mg/dL",
-                    "risk_assessment": "normal" if cholesterol_total < 200 else "borderline" if cholesterol_total < 240 else "elevated",
-                }
-            },
-            # Blood pressure - structured for LabResultsPanel
-            "hypertension": {
-                "parsed": {
-                    "bp_readings": _generate_bp_readings(bmi, age),
-                    "summary": "Blood pressure within normal range" if bmi < 27 else "Borderline elevated blood pressure",
-                    "risk_assessment": "normal" if bmi < 27 else "monitor",
-                }
-            },
-            # Diabetes/glucose - structured for LabResultsPanel
-            "diabetes": {
-                "parsed": {
-                    "glucose_readings": [
-                        {
-                            "value": glucose_fasting,
-                            "date": datetime.now().strftime("%Y-%m-%d"),
-                            "test_type": "fasting"
-                        }
-                    ],
-                    "a1c_readings": [
-                        {
-                            "value": round(5.2 + (glucose_fasting - 90) * 0.02, 1),
-                            "date": datetime.now().strftime("%Y-%m-%d"),
-                        }
-                    ],
-                    "summary": f"Fasting glucose: {glucose_fasting} mg/dL",
-                }
-            },
-            # Family history - structured for FamilyHistoryPanel
-            "family_history": {
-                "parsed": {
-                    "relatives": _generate_family_history_relatives(age),
-                    "summary": _generate_family_history_summary(age),
-                    "risk_assessment": "low" if age < 40 else "moderate",
-                }
-            },
-            # Other medical findings - structured for SubstanceUsePanel
-            "other_medical_findings": {
-                "parsed": {
-                    "lifestyle": {
-                        "smoking_status": _get_smoking_status_text(smoking_status),
-                        "alcohol": _get_alcohol_status_text(),
-                        "marijuana": "No marijuana use reported",
-                        "other": "No other substance use reported",
-                    },
-                    "allergies": _generate_allergies(),
-                    "medications": [],
-                }
-            },
-        },
-        # Medical timeline with health data connection event
-        "medical_timeline": [
-            {
-                "date": datetime.now().strftime("%Y-%m-%d"),
-                "event": "Apple Health data connected",
-                "category": "health_data",
-                "description": f"Health metrics synced: BMI {bmi:.1f}, Avg steps {apple_health_data.get('daily_steps_avg', 8000):,}/day"
-            },
-            {
-                "date": datetime.now().strftime("%Y-%m-%d"),
-                "event": "Lab results recorded",
-                "category": "lab_results",
-                "description": f"Cholesterol: {cholesterol_total} mg/dL, Glucose: {glucose_fasting} mg/dL"
-            },
-        ],
-        "diagnoses_conditions": [],
-        "medications": [],
-        "lab_results": [
-            {
-                "name": "Total Cholesterol",
-                "value": cholesterol_total,
-                "unit": "mg/dL",
-                "date": datetime.now().strftime("%Y-%m-%d"),
-                "status": "normal" if cholesterol_total < 200 else "borderline" if cholesterol_total < 240 else "high"
-            },
-            {
-                "name": "Fasting Glucose",
-                "value": glucose_fasting,
-                "unit": "mg/dL",
-                "date": datetime.now().strftime("%Y-%m-%d"),
-                "status": "normal" if glucose_fasting < 100 else "prediabetic" if glucose_fasting < 126 else "diabetic"
-            },
-        ],
-        # Keep these for backward compatibility
-        "family_history": _generate_family_history(age),
-        "substance_use": {
-            "tobacco": {"status": "never" if smoking_status == "non-smoker" else "former", "details": smoking_status},
-            "alcohol": {"status": "occasional", "details": "Social drinker, 2-3 drinks per week"},
-            "marijuana": {"status": "never", "details": None},
-            "drugs": {"status": "never", "details": None},
-        },
+        # The 7 Apple Health categories - this is the ONLY health data
+        "health_metrics": structured_health_metrics,
+        
+        # NO lab_results, family_history, substance_use, medical_summary, etc.
+        # These are explicitly NOT included for Apple Health workflow
+        
+        # Workflow routing flags
         "source": "end_user",
-        "ingestion_type": "llm_generated_application",
+        "persona": "end_user",
+        "workflow_type": "apple_health",
+        "ingestion_type": "apple_health_application",
+        "is_apple_health": True,  # Flag for UI to show Apple Health layout
     }
     
-    # Build extracted_fields for display (with proper formatting)
+    # Build extracted_fields for display - Apple Health focused
     extracted_fields = {
         "applicant_name": full_name,
         "ApplicantName": full_name,
@@ -515,51 +400,23 @@ async def generate_and_extract_application(
         "applicant_dob": str(user_profile.get("date_of_birth", "")),
         "DateOfBirth": str(user_profile.get("date_of_birth", "")),
         "biological_sex": gender,
-        "Gender": gender.capitalize() if gender else "Unknown",
-        "height": f"{round(apple_health_data.get('height_cm', 170), 2)} cm",
-        "Height": f"{round(apple_health_data.get('height_cm', 170), 2)} cm",
-        "weight": f"{round(apple_health_data.get('weight_kg', 70), 2)} kg",
-        "Weight": f"{round(apple_health_data.get('weight_kg', 70), 2)} kg",
+        "Gender": str(gender).capitalize() if gender else "Unknown",
+        "height": f"{body.get('height_cm', 175):.1f} cm",
+        "Height": f"{body.get('height_cm', 175):.1f} cm",
+        "weight": f"{body.get('weight_kg', 75):.1f} kg",
+        "Weight": f"{body.get('weight_kg', 75):.1f} kg",
         "bmi": round(bmi, 2),
         "BMI": round(bmi, 2),
-        "occupation": occupation,
-        "Occupation": occupation,
         "policy_type": policy_type,
         "coverage_amount": coverage_amount,
-        "data_source": "apple_health_llm_generated",
-        # Substance use fields for SubstanceUsePanel
-        "SmokingStatus": {
-            "field_name": "SmokingStatus",
-            "value": _get_smoking_status_text(smoking_status),
-            "confidence": 0.95,
-        },
-        "AlcoholUse": {
-            "field_name": "AlcoholUse", 
-            "value": _get_alcohol_status_text(),
-            "confidence": 0.95,
-        },
-        "DrugUse": {
-            "field_name": "DrugUse",
-            "value": "No illicit drug use reported",
-            "confidence": 0.95,
-        },
-        # Lab results for LabResultsPanel
-        "LipidPanelResults": {
-            "field_name": "LipidPanelResults",
-            "value": f"Total Cholesterol: {cholesterol_total} mg/dL",
-            "confidence": 0.95,
-        },
-        "BloodPressureReadings": {
-            "field_name": "BloodPressureReadings",
-            "value": _generate_bp_readings(bmi, age),
-            "confidence": 0.95,
-        },
-        # Family history for FamilyHistoryPanel
-        "FamilyHistorySummary": {
-            "field_name": "FamilyHistorySummary",
-            "value": _generate_family_history_summary(age),
-            "confidence": 0.95,
-        },
+        "data_source": "apple_health",
+        
+        # Apple Health specific fields
+        "daily_steps": daily_steps,
+        "resting_hr": resting_hr,
+        "vo2_max": vo2_max,
+        "sleep_hours": sleep_hours,
+        "fitness_level": fitness_level,
     }
     
     return {
@@ -567,127 +424,3 @@ async def generate_and_extract_application(
         "llm_outputs": llm_outputs,
         "extracted_fields": extracted_fields,
     }
-
-
-def _generate_family_history(age: int) -> list:
-    """Generate realistic family history based on age."""
-    import random
-    
-    history = []
-    
-    # Common family history items with age-based probabilities
-    possible_conditions = [
-        {"condition": "Type 2 Diabetes", "relation": "Mother", "age_onset": 55},
-        {"condition": "Hypertension", "relation": "Father", "age_onset": 50},
-        {"condition": "Heart Disease", "relation": "Grandfather", "age_onset": 65},
-        {"condition": "High Cholesterol", "relation": "Father", "age_onset": 45},
-        {"condition": "Type 2 Diabetes", "relation": "Grandmother", "age_onset": 60},
-    ]
-    
-    # Add 1-2 family history items for older applicants
-    num_items = 1 if age < 40 else 2 if age < 50 else random.randint(1, 3)
-    selected = random.sample(possible_conditions, min(num_items, len(possible_conditions)))
-    
-    for item in selected:
-        history.append({
-            "condition": item["condition"],
-            "relation": item["relation"],
-            "age_at_onset": item["age_onset"],
-        })
-    
-    return history
-
-
-def _generate_family_history_relatives(age: int) -> list:
-    """Generate family history relatives in the format expected by FamilyHistoryPanel."""
-    import random
-    
-    possible_relatives = [
-        {"relationship": "Father", "condition": "Hypertension", "age_at_onset": "52", "notes": "Controlled with medication"},
-        {"relationship": "Mother", "condition": "Type 2 Diabetes", "age_at_onset": "58", "notes": "Diet-controlled"},
-        {"relationship": "Paternal Grandfather", "condition": "Heart Disease", "age_at_death": "72", "notes": "MI at age 68"},
-        {"relationship": "Maternal Grandmother", "condition": "Breast Cancer", "age_at_onset": "65", "notes": "Survivor"},
-        {"relationship": "Father", "condition": "High Cholesterol", "age_at_onset": "45", "notes": "On statin therapy"},
-        {"relationship": "Mother", "condition": "Osteoporosis", "age_at_onset": "62", "notes": ""},
-        {"relationship": "Brother", "condition": "None reported", "notes": "Healthy, age 42"},
-        {"relationship": "Sister", "condition": "None reported", "notes": "Healthy, age 38"},
-    ]
-    
-    # Select 2-4 relatives based on age
-    num_items = 2 if age < 35 else 3 if age < 50 else random.randint(3, 4)
-    selected = random.sample(possible_relatives, min(num_items, len(possible_relatives)))
-    
-    return selected
-
-
-def _generate_family_history_summary(age: int) -> str:
-    """Generate a summary of family history."""
-    if age < 35:
-        return "Limited family history of common conditions. Father has hypertension."
-    elif age < 50:
-        return "Family history notable for cardiovascular disease and diabetes. Both parents have chronic conditions managed with medication."
-    else:
-        return "Significant family history including cardiovascular disease, diabetes, and cancer. Multiple first-degree relatives affected."
-
-
-def _generate_bp_readings(bmi: float, age: int) -> list:
-    """Generate realistic blood pressure readings."""
-    import random
-    
-    # Base BP increases with BMI and age
-    base_systolic = 110 + (bmi - 22) * 2 + (age - 30) * 0.3
-    base_diastolic = 70 + (bmi - 22) * 1 + (age - 30) * 0.2
-    
-    readings = []
-    for i in range(2):  # Generate 2 readings
-        systolic = round(base_systolic + random.uniform(-8, 8))
-        diastolic = round(base_diastolic + random.uniform(-5, 5))
-        readings.append({
-            "systolic": systolic,
-            "diastolic": diastolic,
-            "date": datetime.now().strftime("%Y-%m-%d"),
-        })
-    
-    return readings
-
-
-def _get_smoking_status_text(smoking_status: str) -> str:
-    """Get descriptive text for smoking status."""
-    if smoking_status == "non-smoker":
-        return "Non-smoker. Never used tobacco products."
-    elif smoking_status == "former smoker":
-        return "Former smoker. Quit 5+ years ago. No current tobacco use."
-    else:
-        return f"{smoking_status.capitalize()}"
-
-
-def _get_alcohol_status_text() -> str:
-    """Get descriptive text for alcohol use."""
-    import random
-    options = [
-        "Social drinker. 2-3 alcoholic beverages per week.",
-        "Occasional drinker. 1-2 drinks per week on average.",
-        "Light social drinker. Wine with dinner occasionally.",
-        "Moderate alcohol consumption. 3-5 drinks per week.",
-    ]
-    return random.choice(options)
-
-
-def _generate_allergies() -> list:
-    """Generate realistic allergies list."""
-    import random
-    
-    possible_allergies = [
-        {"allergen": "Penicillin", "reaction": "Rash", "severity": "moderate"},
-        {"allergen": "Shellfish", "reaction": "Anaphylaxis", "severity": "severe"},
-        {"allergen": "Pollen", "reaction": "Seasonal allergies", "severity": "mild"},
-        {"allergen": "Dust mites", "reaction": "Respiratory", "severity": "mild"},
-        {"allergen": "Latex", "reaction": "Contact dermatitis", "severity": "moderate"},
-    ]
-    
-    # 60% chance of having no allergies, 40% chance of 1-2 allergies
-    if random.random() < 0.6:
-        return []
-    
-    num_allergies = random.randint(1, 2)
-    return random.sample(possible_allergies, num_allergies)

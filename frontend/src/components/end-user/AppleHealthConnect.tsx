@@ -11,7 +11,10 @@ import {
   Smartphone,
   ArrowRight,
   AlertCircle,
-  Loader2
+  Loader2,
+  Wind,
+  Footprints,
+  Dumbbell
 } from 'lucide-react';
 
 interface AppleHealthConnectProps {
@@ -26,11 +29,15 @@ export default function AppleHealthConnect({ session, onConnected, onBack }: App
   const [coverageAmount, setCoverageAmount] = useState(500000);
   const [error, setError] = useState<string | null>(null);
 
-  const dataPoints = [
-    { icon: Activity, name: 'Activity & Steps', description: 'Daily steps, active minutes, calories' },
-    { icon: Heart, name: 'Heart Rate', description: 'Resting HR, HRV, irregular rhythm events' },
-    { icon: Moon, name: 'Sleep Patterns', description: 'Duration, quality, sleep stages' },
-    { icon: Scale, name: 'Body Metrics', description: 'Weight, BMI, body composition' },
+  // All 7 Apple Health categories from the underwriting policy
+  const dataCategories = [
+    { icon: Activity, name: 'Activity', description: 'Daily steps, active energy', weight: '25%' },
+    { icon: Wind, name: 'Fitness', description: 'VO2 Max, cardio fitness', weight: '20%' },
+    { icon: Heart, name: 'Vitals', description: 'Resting HR, HRV, rhythm events', weight: '20%' },
+    { icon: Moon, name: 'Sleep', description: 'Duration, consistency', weight: '15%' },
+    { icon: Scale, name: 'Body Metrics', description: 'BMI, weight trend', weight: '10%' },
+    { icon: Footprints, name: 'Mobility', description: 'Walking speed, steadiness', weight: '10%' },
+    { icon: Dumbbell, name: 'Exercise', description: 'Workout frequency, types', weight: '—' },
   ];
 
   const handleConsent = async () => {
@@ -110,16 +117,21 @@ export default function AppleHealthConnect({ session, onConnected, onBack }: App
                 <Smartphone className="w-10 h-10 text-gray-400" />
                 <div>
                   <p className="font-medium text-gray-900">Apple Health Integration</p>
-                  <p className="text-sm text-gray-500">Securely share your health metrics</p>
+                  <p className="text-sm text-gray-500">7 health categories for risk assessment</p>
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
-                {dataPoints.map((point, index) => (
+                {dataCategories.map((cat, index) => (
                   <div key={index} className="p-3 border border-gray-200 rounded-lg">
-                    <point.icon className="w-5 h-5 text-indigo-500 mb-2" />
-                    <p className="font-medium text-sm text-gray-900">{point.name}</p>
-                    <p className="text-xs text-gray-500">{point.description}</p>
+                    <div className="flex items-center justify-between mb-2">
+                      <cat.icon className="w-5 h-5 text-indigo-500" />
+                      {cat.weight !== '—' && (
+                        <span className="text-xs text-gray-400 font-medium">{cat.weight}</span>
+                      )}
+                    </div>
+                    <p className="font-medium text-sm text-gray-900">{cat.name}</p>
+                    <p className="text-xs text-gray-500">{cat.description}</p>
                   </div>
                 ))}
               </div>
@@ -171,15 +183,20 @@ export default function AppleHealthConnect({ session, onConnected, onBack }: App
         {/* Step: Consent */}
         {step === 'consent' && (
           <>
-            <div className="space-y-3 mb-6">
-              {dataPoints.map((point, index) => (
+            <div className="space-y-2 mb-6 max-h-64 overflow-y-auto">
+              {dataCategories.map((cat, index) => (
                 <div key={index} className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
                   <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center">
                     <Check className="w-4 h-4 text-green-600" />
                   </div>
                   <div className="flex-1">
-                    <p className="font-medium text-gray-900">{point.name}</p>
-                    <p className="text-sm text-gray-500">{point.description}</p>
+                    <div className="flex items-center justify-between">
+                      <p className="font-medium text-gray-900">{cat.name}</p>
+                      {cat.weight !== '—' && (
+                        <span className="text-xs text-indigo-600 font-medium">{cat.weight} weight</span>
+                      )}
+                    </div>
+                    <p className="text-sm text-gray-500">{cat.description}</p>
                   </div>
                 </div>
               ))}

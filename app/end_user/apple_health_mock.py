@@ -5,9 +5,19 @@ SIMULATED DATA - NOT FOR PRODUCTION USE
 This module generates synthetic Apple Health data for demo purposes.
 NO real Apple APIs, OAuth, or HealthKit SDKs are used.
 
-The mock data is designed to produce DIFFERENT risk analysis results
-based on user profiles, demonstrating the agent pipeline's ability
-to assess varying health conditions.
+The mock data aligns with the Apple HealthKit Underwriting Rules specification:
+- Activity: Steps/day, Active Energy
+- Fitness: VO2 Max
+- Vitals: Resting HR, HRV  
+- Sleep: Duration, consistency
+- Body Metrics: Weight trend, BMI trend
+- Mobility: Walking speed, steadiness
+- Exercise: Workout frequency & intensity
+
+Data Categories explicitly excluded per policy:
+- Reproductive health
+- Mental health notes
+- GPS / location data
 """
 
 import hashlib
@@ -30,85 +40,126 @@ class HealthProfile(str, Enum):
 @dataclass
 class AppleHealthMockData:
     """
-    Mock Apple Health data structure.
+    Mock Apple Health data structure aligned with HealthKit Underwriting Rules.
     
-    This mirrors what would be returned from a real Apple HealthKit integration.
+    Categories from Apple UW Manual:
+    1. Activity - Steps/day, Active Energy
+    2. Fitness - VO2 Max (cardiorespiratory fitness)
+    3. Vitals - Resting HR, HRV
+    4. Sleep - Duration, consistency
+    5. Body Metrics - Weight trend, BMI
+    6. Mobility - Walking speed, steadiness
+    7. Exercise - Workout frequency & intensity
+    
     Data is marked as source="apple_health_mock" to distinguish from real data.
     """
     user_id: str
     consent_timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     data_source: str = "apple_health_mock"
     
-    # Activity Data
+    # =========================================================================
+    # 1. ACTIVITY DATA (25% weight in HKRS)
+    # =========================================================================
     daily_steps_avg: int = 8000
-    daily_active_minutes_avg: int = 45
-    daily_calories_burned_avg: int = 2200
-    weekly_exercise_sessions: int = 3
-    activity_days_with_data: int = 85
+    active_energy_burned_avg: float = 400.0  # kcal/day from active movement
+    activity_days_with_data: int = 120  # Min 120 days per policy
     
-    # Heart Rate Data
-    resting_hr_avg: int = 68
-    resting_hr_min: int = 58
-    resting_hr_max: int = 82
-    hrv_avg_ms: float = 42.0
-    elevated_hr_events: int = 2
-    irregular_rhythm_events: int = 0
-    heart_rate_days_with_data: int = 88
+    # =========================================================================
+    # 2. FITNESS DATA (20% weight in HKRS)
+    # =========================================================================
+    vo2_max: Optional[float] = 38.0  # mL/kg/min - cardiorespiratory fitness
+    vo2_max_readings: int = 5  # Min 3 readings per policy
     
-    # Sleep Data
-    avg_sleep_duration_hours: float = 7.2
-    avg_time_to_sleep_minutes: int = 15
-    sleep_efficiency_pct: float = 88.0
-    deep_sleep_pct: float = 18.0
-    rem_sleep_pct: float = 22.0
-    light_sleep_pct: float = 60.0
-    avg_awakenings_per_night: float = 1.5
-    sleep_nights_with_data: int = 82
+    # =========================================================================
+    # 3. VITALS DATA (20% weight in HKRS)
+    # =========================================================================
+    resting_hr_avg: int = 68  # bpm - preferred 50-70
+    hrv_avg_ms: float = 42.0  # Heart Rate Variability in ms
+    elevated_hr_events: int = 2  # Count of elevated HR at rest
+    irregular_rhythm_events: int = 0  # AFib/arrhythmia events
+    heart_rate_days_with_data: int = 90  # Min 60 days per policy
     
-    # Biometrics
-    height_cm: float = 175.0
-    weight_kg: float = 75.0
+    # =========================================================================
+    # 4. SLEEP DATA (15% weight in HKRS)
+    # =========================================================================
+    avg_sleep_duration_hours: float = 7.2  # Optimal: 7-8 hours
+    sleep_consistency_variance_hours: float = 0.8  # +/- variance, optimal: <1 hour
+    sleep_nights_with_data: int = 100  # Min 90 days per policy
+    
+    # =========================================================================
+    # 5. BODY METRICS DATA (10% weight in HKRS)
+    # =========================================================================
     bmi: float = 24.5
-    blood_pressure_systolic: Optional[int] = None
-    blood_pressure_diastolic: Optional[int] = None
+    bmi_trend: str = "stable"  # stable, improving, mild_increase, significant_increase
+    weight_kg: float = 75.0
+    height_cm: float = 175.0
     
-    # Trends
-    activity_trend_weekly: str = "stable"
-    resting_hr_trend_weekly: str = "stable"
-    sleep_quality_trend_weekly: str = "stable"
-    overall_health_trajectory: str = "neutral"
+    # =========================================================================
+    # 6. MOBILITY DATA (10% weight in HKRS)
+    # =========================================================================
+    walking_speed_avg: float = 1.3  # m/s - 60th percentile threshold varies by age
+    walking_steadiness: str = "normal"  # normal, slightly_unsteady, unsteady
+    double_support_time_pct: Optional[float] = 25.0  # % of gait cycle
+    
+    # =========================================================================
+    # 7. EXERCISE DATA (Part of Activity score)
+    # =========================================================================
+    workout_frequency_weekly: int = 3  # Sessions per week
+    workout_avg_duration_minutes: int = 45
+    workout_types: List[str] = field(default_factory=lambda: ["walking", "running"])
+    
+    # =========================================================================
+    # TRENDS (used for scoring adjustments)
+    # =========================================================================
+    activity_trend_6mo: str = "stable"  # improving, stable, declining
+    weight_trend_6mo: str = "stable"  # stable_or_improving, mild_increase, significant_increase
+    overall_health_trajectory: str = "neutral"  # positive, neutral, negative
     significant_changes: List[str] = field(default_factory=list)
     
-    # Health Flags (derived from data)
+    # =========================================================================
+    # DATA QUALITY METRICS
+    # =========================================================================
+    measurement_period_days: int = 365  # 12 month lookback
+    last_recorded_date: date = field(default_factory=date.today)
+    
+    # Health Concern Flags (derived from data)
     has_elevated_hr_concern: bool = False
     has_irregular_rhythm_concern: bool = False
     has_sleep_concern: bool = False
     has_activity_concern: bool = False
     has_bmi_concern: bool = False
     
-    # Measurement period
-    measurement_period_days: int = 90
-    last_recorded_date: date = field(default_factory=date.today)
-    
     def to_health_metrics_dict(self) -> Dict[str, Any]:
-        """Convert to the HealthMetrics schema format used by agents."""
+        """Convert to the HealthMetrics schema format used by agents.
+        
+        Aligns with Apple HealthKit Underwriting Rules categories:
+        - Activity, Fitness, Vitals, Sleep, Body Metrics, Mobility, Exercise
+        """
         return {
             "patient_id": self.user_id,
             "data_source": self.data_source,
             "collection_timestamp": self.consent_timestamp.isoformat(),
+            
+            # 1. Activity (25% weight)
             "activity": {
                 "daily_steps_avg": self.daily_steps_avg,
-                "daily_active_minutes_avg": self.daily_active_minutes_avg,
-                "daily_calories_burned_avg": self.daily_calories_burned_avg,
-                "weekly_exercise_sessions": self.weekly_exercise_sessions,
+                "active_energy_burned_avg": self.active_energy_burned_avg,
                 "days_with_data": self.activity_days_with_data,
                 "measurement_period_days": self.measurement_period_days,
                 "last_recorded_date": self.last_recorded_date.isoformat(),
+                "trend_6mo": self.activity_trend_6mo,
             },
+            
+            # 2. Fitness (20% weight) - NEW
+            "fitness": {
+                "vo2_max": self.vo2_max,
+                "vo2_max_readings": self.vo2_max_readings,
+                "measurement_period_days": self.measurement_period_days,
+            },
+            
+            # 3. Vitals / Heart Rate (20% weight)
             "heart_rate": {
                 "resting_hr_avg": self.resting_hr_avg,
-                "resting_hr_min": self.resting_hr_min,
-                "resting_hr_max": self.resting_hr_max,
                 "hrv_avg_ms": self.hrv_avg_ms,
                 "elevated_hr_events": self.elevated_hr_events,
                 "irregular_rhythm_events": self.irregular_rhythm_events,
@@ -116,28 +167,48 @@ class AppleHealthMockData:
                 "measurement_period_days": self.measurement_period_days,
                 "last_recorded_date": self.last_recorded_date.isoformat(),
             },
+            
+            # 4. Sleep (15% weight)
             "sleep": {
                 "avg_sleep_duration_hours": self.avg_sleep_duration_hours,
-                "avg_time_to_sleep_minutes": self.avg_time_to_sleep_minutes,
-                "sleep_efficiency_pct": self.sleep_efficiency_pct,
-                "deep_sleep_pct": self.deep_sleep_pct,
-                "rem_sleep_pct": self.rem_sleep_pct,
-                "light_sleep_pct": self.light_sleep_pct,
-                "avg_awakenings_per_night": self.avg_awakenings_per_night,
+                "sleep_consistency_variance_hours": self.sleep_consistency_variance_hours,
                 "nights_with_data": self.sleep_nights_with_data,
                 "measurement_period_days": self.measurement_period_days,
                 "last_recorded_date": self.last_recorded_date.isoformat(),
             },
+            
+            # 5. Body Metrics (10% weight) - NEW category name
+            "body_metrics": {
+                "bmi": self.bmi,
+                "bmi_trend": self.bmi_trend,
+                "weight_kg": self.weight_kg,
+                "height_cm": self.height_cm,
+                "weight_trend_6mo": self.weight_trend_6mo,
+            },
+            
+            # 6. Mobility (10% weight) - NEW
+            "mobility": {
+                "walking_speed_avg": self.walking_speed_avg,
+                "walking_steadiness": self.walking_steadiness,
+                "double_support_time_pct": self.double_support_time_pct,
+            },
+            
+            # 7. Exercise (part of Activity score)
+            "exercise": {
+                "workout_frequency_weekly": self.workout_frequency_weekly,
+                "workout_avg_duration_minutes": self.workout_avg_duration_minutes,
+                "workout_types": self.workout_types,
+            },
+            
+            # Trends for HKRS calculation
             "trends": {
-                "activity_trend_weekly": self.activity_trend_weekly,
-                "activity_trend_monthly": self.activity_trend_weekly,  # Simplified
-                "resting_hr_trend_weekly": self.resting_hr_trend_weekly,
-                "resting_hr_trend_monthly": self.resting_hr_trend_weekly,
-                "sleep_quality_trend_weekly": self.sleep_quality_trend_weekly,
-                "sleep_quality_trend_monthly": self.sleep_quality_trend_weekly,
+                "activity_trend_6mo": self.activity_trend_6mo,
+                "weight_trend_6mo": self.weight_trend_6mo,
                 "overall_health_trajectory": self.overall_health_trajectory,
                 "significant_changes": self.significant_changes,
             },
+            
+            # Consent and privacy
             "consent_verified": True,
             "data_anonymized": True,
         }
@@ -151,37 +222,25 @@ class AppleHealthMockData:
         policy_type: str = "term_life",
         coverage_amount: float = 500000.0,
     ) -> Dict[str, Any]:
-        """Convert to the PatientProfile schema format used by agents."""
+        """Convert to the PatientProfile schema format used by agents.
+        
+        Only includes manual input fields + derived health flags.
+        """
         age = (date.today() - date_of_birth).days // 365
-        
-        # Derive medical history from mock data
-        has_hypertension = self.blood_pressure_systolic is not None and self.blood_pressure_systolic >= 140
-        has_heart_disease = self.irregular_rhythm_events > 5 or self.elevated_hr_events > 20
-        
-        # Determine smoker status based on health indicators
-        # (Mock logic: poor sleep + low activity might correlate with smoking)
-        smoker_status = "never"
-        if self.avg_sleep_duration_hours < 5.5 and self.daily_active_minutes_avg < 20:
-            smoker_status = "former"  # Conservative assumption
         
         return {
             "patient_id": self.user_id,
             "demographics": {
                 "age": age,
                 "biological_sex": biological_sex,
-                "state_region": "California",  # Default for demo
+                "first_name": first_name,
+                "last_name": last_name,
+                "date_of_birth": date_of_birth.isoformat(),
             },
             "medical_history": {
-                "has_diabetes": False,  # Would need additional data
-                "has_hypertension": has_hypertension,
-                "has_heart_disease": has_heart_disease,
-                "has_cancer_history": False,
-                "smoker_status": smoker_status,
-                "alcohol_use": "moderate",  # Default
                 "bmi": self.bmi,
-                "family_history_heart_disease": None,
-                "family_history_cancer": None,
-                "family_history_diabetes": None,
+                "height_cm": self.height_cm,
+                "weight_kg": self.weight_kg,
             },
             "policy_type_requested": policy_type,
             "coverage_amount_requested": coverage_amount,
@@ -269,228 +328,267 @@ def generate_apple_health_data(
     data.user_id = user_id
     data.last_recorded_date = date.today() - timedelta(days=rng.randint(0, 3))
     
-    # Set health flags based on data
-    data.has_elevated_hr_concern = data.elevated_hr_events > 5
+    # Set health flags based on data (per Apple UW manual thresholds)
+    data.has_elevated_hr_concern = data.resting_hr_avg > 80
     data.has_irregular_rhythm_concern = data.irregular_rhythm_events > 0
-    data.has_sleep_concern = data.avg_sleep_duration_hours < 6.0 or data.sleep_efficiency_pct < 75
-    data.has_activity_concern = data.daily_steps_avg < 5000 or data.daily_active_minutes_avg < 20
+    data.has_sleep_concern = data.avg_sleep_duration_hours < 6.0
+    data.has_activity_concern = data.daily_steps_avg < 4000
     data.has_bmi_concern = data.bmi > 30 or data.bmi < 18.5
     
     return data
 
 
 def _generate_excellent_profile(rng: random.Random, age: int) -> AppleHealthMockData:
-    """Generate data for an excellent health profile."""
+    """Generate data for an excellent health profile - HKRS 85-100."""
     return AppleHealthMockData(
         user_id="",  # Set by caller
-        # Activity - very active
+        
+        # 1. Activity (25%) - Very active, 25/25 points
         daily_steps_avg=rng.randint(10000, 14000),
-        daily_active_minutes_avg=rng.randint(60, 90),
-        daily_calories_burned_avg=rng.randint(2400, 3000),
-        weekly_exercise_sessions=rng.randint(4, 6),
-        activity_days_with_data=rng.randint(88, 90),
-        # Heart Rate - excellent
-        resting_hr_avg=rng.randint(55, 62),
-        resting_hr_min=rng.randint(48, 55),
-        resting_hr_max=rng.randint(65, 72),
-        hrv_avg_ms=rng.uniform(50, 70),
-        elevated_hr_events=rng.randint(0, 1),
+        active_energy_burned_avg=rng.uniform(450, 600),
+        activity_days_with_data=rng.randint(130, 150),
+        
+        # 2. Fitness (20%) - Excellent VO2, 20/20 points
+        vo2_max=rng.uniform(45, 55),  # >75th percentile
+        vo2_max_readings=rng.randint(8, 12),
+        
+        # 3. Vitals (20%) - Optimal HR/HRV, 20/20 points
+        resting_hr_avg=rng.randint(52, 65),  # 50-70 optimal
+        hrv_avg_ms=rng.uniform(55, 75),  # >60th percentile
+        elevated_hr_events=0,
         irregular_rhythm_events=0,
-        heart_rate_days_with_data=rng.randint(88, 90),
-        # Sleep - excellent
-        avg_sleep_duration_hours=rng.uniform(7.5, 8.5),
-        avg_time_to_sleep_minutes=rng.randint(5, 12),
-        sleep_efficiency_pct=rng.uniform(92, 97),
-        deep_sleep_pct=rng.uniform(20, 25),
-        rem_sleep_pct=rng.uniform(22, 28),
-        light_sleep_pct=rng.uniform(50, 55),
-        avg_awakenings_per_night=rng.uniform(0.5, 1.2),
-        sleep_nights_with_data=rng.randint(85, 90),
-        # Biometrics - healthy
-        height_cm=rng.uniform(165, 185),
-        weight_kg=rng.uniform(60, 80),
+        heart_rate_days_with_data=rng.randint(90, 120),
+        
+        # 4. Sleep (15%) - Optimal duration/consistency, 15/15 points
+        avg_sleep_duration_hours=rng.uniform(7.2, 7.8),
+        sleep_consistency_variance_hours=rng.uniform(0.3, 0.8),
+        sleep_nights_with_data=rng.randint(100, 120),
+        
+        # 5. Body Metrics (10%) - Healthy BMI, stable, 10/10 points
         bmi=rng.uniform(20, 24),
-        blood_pressure_systolic=rng.randint(105, 118),
-        blood_pressure_diastolic=rng.randint(65, 75),
+        bmi_trend="stable",
+        weight_kg=rng.uniform(60, 80),
+        height_cm=rng.uniform(165, 185),
+        
+        # 6. Mobility (10%) - Excellent, 10/10 points
+        walking_speed_avg=rng.uniform(1.4, 1.6),  # >60th percentile
+        walking_steadiness="normal",
+        double_support_time_pct=rng.uniform(22, 26),
+        
+        # 7. Exercise
+        workout_frequency_weekly=rng.randint(4, 6),
+        workout_avg_duration_minutes=rng.randint(45, 75),
+        workout_types=["running", "cycling", "strength_training"],
+        
         # Trends - positive
-        activity_trend_weekly="improving",
-        resting_hr_trend_weekly="improving",
-        sleep_quality_trend_weekly="stable",
+        activity_trend_6mo="improving",
+        weight_trend_6mo="stable_or_improving",
         overall_health_trajectory="positive",
         significant_changes=[],
     )
 
 
 def _generate_good_profile(rng: random.Random, age: int) -> AppleHealthMockData:
-    """Generate data for a good health profile."""
+    """Generate data for a good health profile - HKRS 70-84."""
     return AppleHealthMockData(
         user_id="",
-        # Activity - moderately active
-        daily_steps_avg=rng.randint(7500, 10000),
-        daily_active_minutes_avg=rng.randint(40, 60),
-        daily_calories_burned_avg=rng.randint(2100, 2500),
-        weekly_exercise_sessions=rng.randint(3, 4),
-        activity_days_with_data=rng.randint(82, 88),
-        # Heart Rate - good
-        resting_hr_avg=rng.randint(62, 70),
-        resting_hr_min=rng.randint(55, 62),
-        resting_hr_max=rng.randint(72, 82),
-        hrv_avg_ms=rng.uniform(38, 52),
-        elevated_hr_events=rng.randint(1, 4),
+        
+        # 1. Activity (25%) - Good, 18-25/25 points
+        daily_steps_avg=rng.randint(7000, 9500),
+        active_energy_burned_avg=rng.uniform(350, 450),
+        activity_days_with_data=rng.randint(110, 130),
+        
+        # 2. Fitness (20%) - Good VO2, 15/20 points
+        vo2_max=rng.uniform(38, 45),  # 50-74th percentile
+        vo2_max_readings=rng.randint(5, 8),
+        
+        # 3. Vitals (20%) - Good HR/HRV, 15-20/20 points
+        resting_hr_avg=rng.randint(60, 72),
+        hrv_avg_ms=rng.uniform(42, 55),
+        elevated_hr_events=rng.randint(0, 3),
         irregular_rhythm_events=0,
-        heart_rate_days_with_data=rng.randint(85, 90),
-        # Sleep - good
+        heart_rate_days_with_data=rng.randint(80, 100),
+        
+        # 4. Sleep (15%) - Good, 10-15/15 points
         avg_sleep_duration_hours=rng.uniform(6.8, 7.5),
-        avg_time_to_sleep_minutes=rng.randint(10, 20),
-        sleep_efficiency_pct=rng.uniform(85, 92),
-        deep_sleep_pct=rng.uniform(16, 20),
-        rem_sleep_pct=rng.uniform(20, 24),
-        light_sleep_pct=rng.uniform(58, 62),
-        avg_awakenings_per_night=rng.uniform(1.0, 2.0),
-        sleep_nights_with_data=rng.randint(80, 88),
-        # Biometrics - healthy
-        height_cm=rng.uniform(165, 185),
-        weight_kg=rng.uniform(65, 85),
+        sleep_consistency_variance_hours=rng.uniform(0.6, 1.2),
+        sleep_nights_with_data=rng.randint(90, 110),
+        
+        # 5. Body Metrics (10%) - Good, 8-10/10 points
         bmi=rng.uniform(22, 26),
-        blood_pressure_systolic=rng.randint(115, 125),
-        blood_pressure_diastolic=rng.randint(72, 82),
+        bmi_trend="stable",
+        weight_kg=rng.uniform(65, 85),
+        height_cm=rng.uniform(165, 185),
+        
+        # 6. Mobility (10%) - Good, 8-10/10 points
+        walking_speed_avg=rng.uniform(1.25, 1.4),
+        walking_steadiness="normal",
+        double_support_time_pct=rng.uniform(24, 28),
+        
+        # 7. Exercise
+        workout_frequency_weekly=rng.randint(2, 4),
+        workout_avg_duration_minutes=rng.randint(30, 50),
+        workout_types=["walking", "yoga"],
+        
         # Trends - stable
-        activity_trend_weekly="stable",
-        resting_hr_trend_weekly="stable",
-        sleep_quality_trend_weekly="stable",
+        activity_trend_6mo="stable",
+        weight_trend_6mo="stable_or_improving",
         overall_health_trajectory="neutral",
         significant_changes=[],
     )
 
 
 def _generate_moderate_profile(rng: random.Random, age: int) -> AppleHealthMockData:
-    """Generate data for a moderate health profile with some concerns."""
+    """Generate data for a moderate health profile - HKRS 55-69."""
     return AppleHealthMockData(
         user_id="",
-        # Activity - somewhat active
-        daily_steps_avg=rng.randint(5500, 8000),
-        daily_active_minutes_avg=rng.randint(25, 45),
-        daily_calories_burned_avg=rng.randint(1900, 2200),
-        weekly_exercise_sessions=rng.randint(2, 3),
-        activity_days_with_data=rng.randint(70, 82),
-        # Heart Rate - moderate
-        resting_hr_avg=rng.randint(70, 78),
-        resting_hr_min=rng.randint(62, 70),
-        resting_hr_max=rng.randint(82, 92),
-        hrv_avg_ms=rng.uniform(28, 42),
-        elevated_hr_events=rng.randint(5, 12),
+        
+        # 1. Activity (25%) - Moderate, 10-18/25 points
+        daily_steps_avg=rng.randint(5000, 7000),
+        active_energy_burned_avg=rng.uniform(250, 350),
+        activity_days_with_data=rng.randint(90, 115),
+        
+        # 2. Fitness (20%) - Fair VO2, 8-15/20 points
+        vo2_max=rng.uniform(30, 38),  # 25-49th percentile
+        vo2_max_readings=rng.randint(3, 6),
+        
+        # 3. Vitals (20%) - Elevated HR, 10-15/20 points
+        resting_hr_avg=rng.randint(72, 78),
+        hrv_avg_ms=rng.uniform(32, 42),
+        elevated_hr_events=rng.randint(3, 8),
         irregular_rhythm_events=rng.randint(0, 1),
-        heart_rate_days_with_data=rng.randint(80, 88),
-        # Sleep - some issues
-        avg_sleep_duration_hours=rng.uniform(6.0, 7.0),
-        avg_time_to_sleep_minutes=rng.randint(20, 35),
-        sleep_efficiency_pct=rng.uniform(78, 86),
-        deep_sleep_pct=rng.uniform(12, 17),
-        rem_sleep_pct=rng.uniform(18, 22),
-        light_sleep_pct=rng.uniform(62, 68),
-        avg_awakenings_per_night=rng.uniform(2.0, 3.5),
-        sleep_nights_with_data=rng.randint(72, 82),
-        # Biometrics - borderline
-        height_cm=rng.uniform(165, 185),
-        weight_kg=rng.uniform(75, 95),
+        heart_rate_days_with_data=rng.randint(70, 90),
+        
+        # 4. Sleep (15%) - Some issues, 6-10/15 points
+        avg_sleep_duration_hours=rng.uniform(6.0, 6.8),
+        sleep_consistency_variance_hours=rng.uniform(1.2, 1.8),
+        sleep_nights_with_data=rng.randint(75, 95),
+        
+        # 5. Body Metrics (10%) - Borderline, 5/10 points
         bmi=rng.uniform(26, 29),
-        blood_pressure_systolic=rng.randint(125, 135),
-        blood_pressure_diastolic=rng.randint(80, 88),
-        # Trends - mixed
-        activity_trend_weekly="declining",
-        resting_hr_trend_weekly="stable",
-        sleep_quality_trend_weekly="declining",
+        bmi_trend="mild_increase",
+        weight_kg=rng.uniform(80, 95),
+        height_cm=rng.uniform(165, 185),
+        
+        # 6. Mobility (10%) - Fair, 5-8/10 points
+        walking_speed_avg=rng.uniform(1.1, 1.25),
+        walking_steadiness="normal",
+        double_support_time_pct=rng.uniform(27, 31),
+        
+        # 7. Exercise
+        workout_frequency_weekly=rng.randint(1, 2),
+        workout_avg_duration_minutes=rng.randint(20, 35),
+        workout_types=["walking"],
+        
+        # Trends - declining
+        activity_trend_6mo="declining",
+        weight_trend_6mo="mild_increase",
         overall_health_trajectory="neutral",
         significant_changes=["Activity levels decreased over past month"],
     )
 
 
 def _generate_concerning_profile(rng: random.Random, age: int) -> AppleHealthMockData:
-    """Generate data for a concerning health profile."""
+    """Generate data for a concerning health profile - HKRS 40-54."""
     return AppleHealthMockData(
         user_id="",
-        # Activity - sedentary
-        daily_steps_avg=rng.randint(3500, 5500),
-        daily_active_minutes_avg=rng.randint(15, 25),
-        daily_calories_burned_avg=rng.randint(1700, 2000),
-        weekly_exercise_sessions=rng.randint(0, 2),
-        activity_days_with_data=rng.randint(60, 75),
-        # Heart Rate - elevated
-        resting_hr_avg=rng.randint(78, 88),
-        resting_hr_min=rng.randint(70, 78),
-        resting_hr_max=rng.randint(92, 105),
-        hrv_avg_ms=rng.uniform(20, 30),
-        elevated_hr_events=rng.randint(15, 30),
-        irregular_rhythm_events=rng.randint(1, 4),
-        heart_rate_days_with_data=rng.randint(75, 85),
-        # Sleep - poor
-        avg_sleep_duration_hours=rng.uniform(5.2, 6.2),
-        avg_time_to_sleep_minutes=rng.randint(35, 55),
-        sleep_efficiency_pct=rng.uniform(70, 78),
-        deep_sleep_pct=rng.uniform(8, 13),
-        rem_sleep_pct=rng.uniform(14, 19),
-        light_sleep_pct=rng.uniform(68, 75),
-        avg_awakenings_per_night=rng.uniform(3.5, 5.5),
-        sleep_nights_with_data=rng.randint(65, 78),
-        # Biometrics - overweight
-        height_cm=rng.uniform(165, 185),
-        weight_kg=rng.uniform(88, 110),
+        
+        # 1. Activity (25%) - Low, 0-10/25 points
+        daily_steps_avg=rng.randint(3500, 5000),
+        active_energy_burned_avg=rng.uniform(150, 250),
+        activity_days_with_data=rng.randint(70, 95),
+        
+        # 2. Fitness (20%) - Below average VO2, 0-8/20 points
+        vo2_max=rng.uniform(22, 30),  # <25th percentile
+        vo2_max_readings=rng.randint(2, 4),
+        
+        # 3. Vitals (20%) - Elevated, 5-10/20 points
+        resting_hr_avg=rng.randint(78, 85),
+        hrv_avg_ms=rng.uniform(22, 32),
+        elevated_hr_events=rng.randint(10, 20),
+        irregular_rhythm_events=rng.randint(1, 3),
+        heart_rate_days_with_data=rng.randint(60, 80),
+        
+        # 4. Sleep (15%) - Poor, 3-6/15 points
+        avg_sleep_duration_hours=rng.uniform(5.2, 6.0),
+        sleep_consistency_variance_hours=rng.uniform(1.8, 2.5),
+        sleep_nights_with_data=rng.randint(60, 80),
+        
+        # 5. Body Metrics (10%) - Overweight, 0-5/10 points
         bmi=rng.uniform(29, 33),
-        blood_pressure_systolic=rng.randint(135, 148),
-        blood_pressure_diastolic=rng.randint(88, 95),
+        bmi_trend="mild_increase",
+        weight_kg=rng.uniform(90, 110),
+        height_cm=rng.uniform(165, 185),
+        
+        # 6. Mobility (10%) - Below average, 2-5/10 points
+        walking_speed_avg=rng.uniform(0.95, 1.1),
+        walking_steadiness="slightly_unsteady",
+        double_support_time_pct=rng.uniform(30, 35),
+        
+        # 7. Exercise
+        workout_frequency_weekly=rng.randint(0, 1),
+        workout_avg_duration_minutes=rng.randint(15, 25),
+        workout_types=["walking"],
+        
         # Trends - negative
-        activity_trend_weekly="declining",
-        resting_hr_trend_weekly="concerning",
-        sleep_quality_trend_weekly="declining",
+        activity_trend_6mo="declining",
+        weight_trend_6mo="mild_increase",
         overall_health_trajectory="negative",
         significant_changes=[
-            "Resting heart rate increased by 8 bpm over past 2 months",
+            "Resting heart rate increased over past 2 months",
             "Sleep duration decreased significantly",
-            "Multiple irregular rhythm events detected",
         ],
     )
 
 
 def _generate_high_risk_profile(rng: random.Random, age: int) -> AppleHealthMockData:
-    """Generate data for a high risk health profile."""
+    """Generate data for a high risk health profile - HKRS <40 (substandard)."""
     return AppleHealthMockData(
         user_id="",
-        # Activity - very sedentary
-        daily_steps_avg=rng.randint(2000, 4000),
-        daily_active_minutes_avg=rng.randint(5, 18),
-        daily_calories_burned_avg=rng.randint(1500, 1800),
-        weekly_exercise_sessions=0,
-        activity_days_with_data=rng.randint(45, 65),
-        # Heart Rate - concerning
-        resting_hr_avg=rng.randint(88, 100),
-        resting_hr_min=rng.randint(78, 88),
-        resting_hr_max=rng.randint(105, 125),
+        
+        # 1. Activity (25%) - Very low, 0/25 points
+        daily_steps_avg=rng.randint(1500, 3500),
+        active_energy_burned_avg=rng.uniform(80, 150),
+        activity_days_with_data=rng.randint(40, 70),
+        
+        # 2. Fitness (20%) - Poor VO2, 0/20 points
+        vo2_max=rng.uniform(18, 22),  # <25th percentile
+        vo2_max_readings=rng.randint(1, 3),
+        
+        # 3. Vitals (20%) - High HR, low HRV, 0-5/20 points
+        resting_hr_avg=rng.randint(85, 98),
         hrv_avg_ms=rng.uniform(12, 22),
-        elevated_hr_events=rng.randint(30, 60),
-        irregular_rhythm_events=rng.randint(5, 15),
-        heart_rate_days_with_data=rng.randint(65, 80),
-        # Sleep - very poor
-        avg_sleep_duration_hours=rng.uniform(4.5, 5.5),
-        avg_time_to_sleep_minutes=rng.randint(50, 90),
-        sleep_efficiency_pct=rng.uniform(60, 72),
-        deep_sleep_pct=rng.uniform(5, 10),
-        rem_sleep_pct=rng.uniform(10, 15),
-        light_sleep_pct=rng.uniform(75, 82),
-        avg_awakenings_per_night=rng.uniform(5.0, 8.0),
-        sleep_nights_with_data=rng.randint(50, 68),
-        # Biometrics - obese
-        height_cm=rng.uniform(165, 185),
-        weight_kg=rng.uniform(105, 140),
+        elevated_hr_events=rng.randint(25, 50),
+        irregular_rhythm_events=rng.randint(5, 12),
+        heart_rate_days_with_data=rng.randint(50, 70),
+        
+        # 4. Sleep (15%) - Very poor, 0-3/15 points
+        avg_sleep_duration_hours=rng.uniform(4.5, 5.2),
+        sleep_consistency_variance_hours=rng.uniform(2.5, 4.0),
+        sleep_nights_with_data=rng.randint(40, 65),
+        
+        # 5. Body Metrics (10%) - Obese, 0/10 points
         bmi=rng.uniform(33, 42),
-        blood_pressure_systolic=rng.randint(148, 165),
-        blood_pressure_diastolic=rng.randint(95, 108),
+        bmi_trend="significant_increase",
+        weight_kg=rng.uniform(105, 140),
+        height_cm=rng.uniform(165, 185),
+        
+        # 6. Mobility (10%) - Poor, 0-2/10 points
+        walking_speed_avg=rng.uniform(0.75, 0.95),
+        walking_steadiness="unsteady",
+        double_support_time_pct=rng.uniform(35, 42),
+        
+        # 7. Exercise
+        workout_frequency_weekly=0,
+        workout_avg_duration_minutes=0,
+        workout_types=[],
+        
         # Trends - very negative
-        activity_trend_weekly="declining",
-        resting_hr_trend_weekly="concerning",
-        sleep_quality_trend_weekly="declining",
+        activity_trend_6mo="declining",
+        weight_trend_6mo="significant_increase",
         overall_health_trajectory="negative",
         significant_changes=[
-            "Resting heart rate consistently elevated above 90 bpm",
+            "Resting heart rate consistently elevated above 85 bpm",
             "Multiple irregular rhythm events detected - medical review recommended",
             "Severe sleep deficiency detected",
             "Very low activity levels - virtually sedentary",

@@ -170,6 +170,7 @@ from app.agents.health_data_analysis import (
     HealthDataAnalysisOutput,
 )
 from app.agents.policy_risk import PolicyRiskAgent, PolicyRiskOutput
+from app.agents.apple_health_risk import AppleHealthRiskAgent, AppleHealthRiskOutput
 from app.agents.communication import (
     CommunicationAgent,
     CommunicationInput,
@@ -631,6 +632,7 @@ class OrchestratorAgent:
     FOUNDRY_AGENT_NAMES = {
         "HealthDataAnalysisAgent": "health_data_analysis",
         "PolicyRiskAgent": "policy_risk_analysis",
+        "AppleHealthRiskAgent": "apple_health_risk",
         "CommunicationAgent": "communication",
     }
     
@@ -638,6 +640,7 @@ class OrchestratorAgent:
     AGENT_DISPLAY_NAMES = {
         "HealthDataAnalysisAgent": "Health Data Analysis",
         "PolicyRiskAgent": "Policy Risk Assessment",
+        "AppleHealthRiskAgent": "Apple Health Risk Scoring",
         "CommunicationAgent": "Decision Communication",
     }
     
@@ -670,10 +673,40 @@ class OrchestratorAgent:
             self.logger.info("OrchestratorAgent initialized with local deterministic agents%s", 
                            " (demo mode)" if use_demo else "")
         
-        # Initialize local agents (2-agent workflow + communication)
+        # Initialize local agents
+        # Traditional workflow (admin/underwriter): HealthDataAnalysis → PolicyRisk → Communication
+        # Apple Health workflow (end_user): HealthDataAnalysis → AppleHealthRisk → Communication
         self._health_data_agent = HealthDataAnalysisAgent()
         self._policy_risk_agent = PolicyRiskAgent()
+        self._apple_health_risk_agent = AppleHealthRiskAgent()
         self._communication_agent = CommunicationAgent()
+    
+    def _determine_workflow_type(self, validated_input: OrchestratorInput) -> str:
+        """Determine which workflow to use based on input source.
+        
+        Returns:
+            'admin' for traditional workflow (PolicyRiskAgent)
+            'apple_health' for Apple Health workflow (AppleHealthRiskAgent)
+        """
+        # Check llm_outputs for source indicator
+        if validated_input.llm_outputs:
+            source = validated_input.llm_outputs.get("source", "")
+            if source == "end_user" or source == "apple_health":
+                return "apple_health"
+            
+            # Also check data_source in the metrics
+            data_source = validated_input.llm_outputs.get("health_metrics", {}).get("data_source", "")
+            if "apple_health" in data_source.lower():
+                return "apple_health"
+        
+        # Check health_metrics data source
+        if validated_input.health_metrics:
+            if hasattr(validated_input.health_metrics, 'data_source'):
+                if "apple_health" in validated_input.health_metrics.data_source.lower():
+                    return "apple_health"
+        
+        # Default to admin workflow
+        return "admin"
     
     async def _get_foundry_invoker(self):
         """Get the Foundry invoker (lazy initialization)."""
@@ -750,11 +783,15 @@ class OrchestratorAgent:
         
         policy_rules = validated_input.policy_rules or get_standard_policy_rules()
         
+        # Determine which workflow to use based on input source
+        workflow_type = self._determine_workflow_type(validated_input)
+        self.logger.info(f"Workflow {workflow_id} using '{workflow_type}' workflow")
+        
         # Get evaluator service (STEP 4 integration)
         evaluator = get_evaluator_service()
         
         try:
-            # STEP 1: HealthDataAnalysisAgent (MANDATORY)
+            # STEP 1: HealthDataAnalysisAgent (MANDATORY - both workflows)
             health_output = await self._execute_health_data_analysis(context, health_metrics, patient_profile)
             
             # EVALUATION: Run after agent completes (non-blocking)
@@ -776,32 +813,55 @@ class OrchestratorAgent:
                 except Exception as e:
                     self.logger.warning(f"Evaluation failed for HealthDataAnalysisAgent: {e}")
             
-            # STEP 2: PolicyRiskAgent (MANDATORY) 
-            # Applies JSON policies to determine risk level, premium adjustment, and final decision
-            policy_risk_output = await self._execute_policy_risk(context, policy_rules)
+            # STEP 2: Risk Agent (workflow-dependent)
+            # - Admin workflow: PolicyRiskAgent (traditional JSON policies)
+            # - Apple Health workflow: AppleHealthRiskAgent (HKRS scoring)
+            if workflow_type == "apple_health":
+                self.logger.info("Using AppleHealthRiskAgent for HKRS scoring")
+                risk_output = await self._execute_apple_health_risk(context, health_metrics, patient_profile)
+                risk_agent_id = "AppleHealthRiskAgent"
+            else:
+                self.logger.info("Using PolicyRiskAgent for traditional underwriting")
+                risk_output = await self._execute_policy_risk(context, policy_rules)
+                risk_agent_id = "PolicyRiskAgent"
+            
+            # Store risk output in context for communication agent (aliased as policy_risk for backward compat)
+            policy_risk_output = risk_output
             
             # EVALUATION: Run after agent completes (non-blocking)
             if is_evaluations_enabled():
                 try:
+                    # Build appropriate context based on workflow type
+                    if workflow_type == "apple_health":
+                        eval_context = "Apple Health HKRS scoring workflow"
+                        eval_input = {
+                            "workflow_type": "apple_health",
+                            "health_metrics": health_metrics.model_dump() if health_metrics else {},
+                        }
+                    else:
+                        eval_context = str(policy_rules.model_dump() if hasattr(policy_rules, 'model_dump') else policy_rules)
+                        eval_input = {
+                            "rules_context": eval_context,
+                            "policy_rules": eval_context,
+                        }
+                    
                     policy_eval = await evaluator.evaluate_agent(
-                        agent_id="PolicyRiskAgent",
-                        agent_input={
-                            "rules_context": str(policy_rules.model_dump() if hasattr(policy_rules, 'model_dump') else policy_rules),
-                            "policy_rules": str(policy_rules.model_dump() if hasattr(policy_rules, 'model_dump') else policy_rules),
-                        },
+                        agent_id=risk_agent_id,
+                        agent_input=eval_input,
                         agent_output={
-                            "rationale": policy_risk_output.rationale if hasattr(policy_risk_output, 'rationale') else str(policy_risk_output),
-                            "approved": policy_risk_output.approved if hasattr(policy_risk_output, 'approved') else None,
-                            "risk_level": policy_risk_output.risk_level.value if hasattr(policy_risk_output, 'risk_level') else None,
-                            "decision": policy_risk_output.decision if hasattr(policy_risk_output, 'decision') else None,
+                            "rationale": risk_output.rationale if hasattr(risk_output, 'rationale') else str(risk_output),
+                            "approved": risk_output.approved if hasattr(risk_output, 'approved') else None,
+                            "risk_level": risk_output.risk_level.value if hasattr(risk_output, 'risk_level') else (risk_output.hkrs_band.value if hasattr(risk_output, 'hkrs_band') else None),
+                            "decision": risk_output.decision if hasattr(risk_output, 'decision') else None,
+                            "hkrs": risk_output.hkrs if hasattr(risk_output, 'hkrs') else None,
                         },
-                        context=str(policy_rules.model_dump() if hasattr(policy_rules, 'model_dump') else policy_rules),
+                        context=eval_context,
                     )
-                    context.store_evaluation("PolicyRiskAgent", policy_eval)
+                    context.store_evaluation(risk_agent_id, policy_eval)
                 except Exception as e:
-                    self.logger.warning(f"Evaluation failed for PolicyRiskAgent: {e}")
+                    self.logger.warning(f"Evaluation failed for {risk_agent_id}: {e}")
             
-            # STEP 3: CommunicationAgent (MANDATORY)
+            # STEP 3: CommunicationAgent (MANDATORY - both workflows)
             comm_output = await self._execute_communication(context, patient_profile)
             
             # EVALUATION: Run after agent completes (non-blocking)
@@ -974,31 +1034,62 @@ class OrchestratorAgent:
         
         policy_rules = validated_input.policy_rules or get_standard_policy_rules()
         
-        # Define agents in execution order (4-agent workflow with PolicyRiskAgent)
+        # Determine workflow type based on input source
+        workflow_type = self._determine_workflow_type(validated_input)
+        self.logger.info(f"Workflow type: {workflow_type}")
+        
+        # Define agents in execution order based on workflow type
         # Each tuple: (agent_id, step_number, description, tools_used, execute_fn)
-        agents = [
-            (
-                "HealthDataAnalysisAgent", 
-                1, 
-                "Analyzing health metrics and patient profile",
-                ["health-metrics-analyzer", "risk-indicator-extractor"],
-                lambda: self._execute_health_data_analysis(context, health_metrics, patient_profile)
-            ),
-            (
-                "PolicyRiskAgent",
-                2,
-                "Applying underwriting policies and determining decision",
-                ["policy-rule-engine", "risk-classifier", "premium-calculator"],
-                lambda: self._execute_policy_risk(context, policy_rules)
-            ),
-            (
-                "CommunicationAgent", 
-                3, 
-                "Generating decision communications",
-                ["message-generator", "tone-analyzer"],
-                lambda: self._execute_communication(context, patient_profile)
-            ),
-        ]
+        if workflow_type == "apple_health":
+            # Apple Health workflow for end users
+            agents = [
+                (
+                    "HealthDataAnalysisAgent", 
+                    1, 
+                    "Analyzing Apple Health metrics and patient profile",
+                    ["health-metrics-analyzer", "risk-indicator-extractor"],
+                    lambda: self._execute_health_data_analysis(context, health_metrics, patient_profile)
+                ),
+                (
+                    "AppleHealthRiskAgent",
+                    2,
+                    "Calculating HealthKit Risk Score (HKRS) and determining decision",
+                    ["hkrs-calculator", "age-adjustment", "risk-classifier"],
+                    lambda: self._execute_apple_health_risk(context, health_metrics, patient_profile)
+                ),
+                (
+                    "CommunicationAgent", 
+                    3, 
+                    "Generating personalized health summary",
+                    ["message-generator", "tone-analyzer"],
+                    lambda: self._execute_communication(context, patient_profile)
+                ),
+            ]
+        else:
+            # Traditional admin workflow with PolicyRiskAgent
+            agents = [
+                (
+                    "HealthDataAnalysisAgent", 
+                    1, 
+                    "Analyzing health metrics and patient profile",
+                    ["health-metrics-analyzer", "risk-indicator-extractor"],
+                    lambda: self._execute_health_data_analysis(context, health_metrics, patient_profile)
+                ),
+                (
+                    "PolicyRiskAgent",
+                    2,
+                    "Applying underwriting policies and determining decision",
+                    ["policy-rule-engine", "risk-classifier", "premium-calculator"],
+                    lambda: self._execute_policy_risk(context, policy_rules)
+                ),
+                (
+                    "CommunicationAgent", 
+                    3, 
+                    "Generating decision communications",
+                    ["message-generator", "tone-analyzer"],
+                    lambda: self._execute_communication(context, patient_profile)
+                ),
+            ]
         
         total_steps = len(agents)
         
@@ -1317,6 +1408,11 @@ class OrchestratorAgent:
             decision = pr_out.decision if hasattr(pr_out, 'decision') else "approved"
             adj_pct = pr_out.premium_adjustment_recommendation.adjustment_percentage if pr_out else 0
             return f"Decision: {decision.replace('_', ' ').title()}, Risk: {pr_out.risk_level.value}, {adj_pct:+.0f}% adjustment"
+        
+        elif agent_id == "AppleHealthRiskAgent":
+            ah_out: AppleHealthRiskOutput = output
+            hkrs_band = ah_out.hkrs_band.value if hasattr(ah_out, 'hkrs_band') else "unknown"
+            return f"HKRS: {ah_out.hkrs:.0f}/100 ({hkrs_band.replace('_', ' ').title()}), Risk Class: {ah_out.risk_class_recommendation}"
         
         elif agent_id == "CommunicationAgent":
             from app.agents.communication import CommunicationOutput
@@ -1875,6 +1971,306 @@ Criteria:"""
             formatted.append(policy_text)
         
         return "\n".join(formatted)
+    
+    async def _execute_apple_health_risk(
+        self,
+        context: ExecutionContext,
+        health_metrics: HealthMetrics,
+        patient_profile: PatientProfile,
+    ) -> AppleHealthRiskOutput:
+        """Step 2 (Apple Health workflow): Execute AppleHealthRiskAgent.
+        
+        Calculates HealthKit Risk Score (HKRS) from Apple Health data
+        using the Apple Health underwriting policies.
+        """
+        self.logger.info("Step 2: Executing AppleHealthRiskAgent%s",
+                        " (via Azure AI Foundry)" if self._use_foundry else " (local)")
+        
+        # Get risk indicators from Step 1 (optional for context)
+        hda_output: HealthDataAnalysisOutput = context.get_output("HealthDataAnalysisAgent")
+        
+        # Load the Apple Health underwriting policies
+        apple_health_policies = self._load_apple_health_policies()
+        
+        # Build input for the agent
+        input_data = {
+            "health_metrics": health_metrics.model_dump() if health_metrics else {},
+            "patient_profile": patient_profile.model_dump() if patient_profile else {},
+        }
+        
+        if self._use_foundry:
+            # Use Foundry or OpenAI for Apple Health risk scoring
+            import json as json_module
+            from app.openai_client import chat_completion
+            from app.config import load_settings
+            
+            # Format health metrics for prompt
+            metrics_summary = self._format_apple_health_metrics_for_prompt(health_metrics)
+            
+            # Format policies for prompt
+            policies_summary = self._format_apple_health_policies_for_prompt(apple_health_policies)
+            
+            prompt = f"""You are an Apple Health underwriting specialist. Calculate the HealthKit Risk Score (HKRS) for this applicant.
+
+## APPLICANT PROFILE
+Age: {patient_profile.demographics.age if patient_profile.demographics else 'Unknown'}
+Gender: {patient_profile.demographics.biological_sex if patient_profile.demographics else 'Unknown'}
+
+## APPLE HEALTH METRICS
+{metrics_summary}
+
+## HKRS SCORING RULES
+{policies_summary}
+
+## INSTRUCTIONS
+1. Calculate each sub-score based on the metrics:
+   - Activity Score (25%): Steps/day >8000=25pts, 6000-7999=18pts, 4000-5999=10pts, <4000=0pts
+   - VO2 Max Score (20%): ≥75th percentile=20pts, 50-74th=15pts, 25-49th=8pts, <25th=0pts
+   - Heart Health Score (20%): Resting HR 50-70=10pts + HRV ≥60th percentile=10pts
+   - Sleep Health Score (15%): 7-8 hours=10pts + consistency ≤1hr variance=5pts
+   - Body Composition Score (10%): Stable/improving BMI=10pts, mild increase=5pts
+   - Mobility Score (10%): Walking speed ≥60th percentile=5pts + normal steadiness=5pts
+
+2. Apply Age Adjustment Factor (AAF):
+   - 18-34: 1.00
+   - 35-44: 0.98
+   - 45-54: 0.95
+   - 55-64: 0.92
+   - 65+: 0.88
+
+3. Calculate HKRS = (Sum of weighted scores) × AAF
+
+4. Determine HKRS band:
+   - 85-100: Excellent (eligible for best class)
+   - 70-84: Very Good (may improve one class)
+   - 55-69: Standard Plus
+   - 40-54: Standard (no adjustment)
+   - <40: Substandard (manual review)
+
+Return JSON:
+{{
+  "hkrs": <score 0-100>,
+  "hkrs_band": "excellent" | "very_good" | "standard_plus" | "standard" | "substandard",
+  "age_adjustment_factor": <0.88-1.00>,
+  "sub_scores": {{
+    "activity": {{"score": X, "max": 25, "notes": "..."}},
+    "vo2_max": {{"score": X, "max": 20, "notes": "..."}},
+    "heart_health": {{"score": X, "max": 20, "notes": "..."}},
+    "sleep_health": {{"score": X, "max": 15, "notes": "..."}},
+    "body_composition": {{"score": X, "max": 10, "notes": "..."}},
+    "mobility": {{"score": X, "max": 10, "notes": "..."}}
+  }},
+  "approved": true,
+  "decision": "approved" | "approved_with_adjustment" | "referred",
+  "referral_required": true | false,
+  "risk_class_recommendation": "Preferred Plus" | "Preferred" | "Standard Plus" | "Standard" | "Substandard",
+  "top_positive_drivers": ["driver1", "driver2", "driver3"],
+  "improvement_suggestions": ["suggestion1", "suggestion2"],
+  "rationale": "2-3 sentence explanation of the HKRS score"
+}}"""
+
+            # Try Foundry agent first if available
+            foundry_name = self.FOUNDRY_AGENT_NAMES.get("AppleHealthRiskAgent")
+            use_foundry_agent = False
+            
+            if foundry_name:
+                try:
+                    result = await self._invoke_foundry_agent(
+                        "AppleHealthRiskAgent",
+                        prompt,
+                        input_data,
+                        execution_context=context,
+                        step_number=2,
+                    )
+                    use_foundry_agent = True
+                    parsed = result.get("parsed") or {}
+                    execution_time_ms = result.get("execution_time_ms", 0)
+                    tools_used_from_foundry = result.get("tools_used", [])
+                except Exception as e:
+                    self.logger.warning("Foundry agent for AppleHealthRiskAgent not available: %s. Using direct OpenAI.", e)
+                    use_foundry_agent = False
+            
+            if not use_foundry_agent:
+                # Fall back to direct OpenAI
+                settings = load_settings()
+                start_time = datetime.now(timezone.utc)
+                
+                messages = [
+                    {"role": "system", "content": "You are an Apple Health underwriting specialist. Return responses as valid JSON only."},
+                    {"role": "user", "content": prompt}
+                ]
+                
+                response = chat_completion(
+                    settings=settings.openai,
+                    messages=messages,
+                    temperature=0.3,
+                    max_tokens=2000,
+                )
+                
+                execution_time_ms = (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
+                response_text = response.get("content", "{}")
+                
+                try:
+                    parsed = json_module.loads(response_text)
+                except json_module.JSONDecodeError:
+                    self.logger.warning("Failed to parse AppleHealthRiskAgent response as JSON")
+                    parsed = {}
+                
+                tools_used_from_foundry = []
+            
+            # Build output from parsed response
+            from app.agents.apple_health_risk import HKRSBand, DataQuality, SubScoreDetail
+            
+            hkrs = parsed.get("hkrs", 60.0)
+            hkrs_band_str = parsed.get("hkrs_band", "standard")
+            hkrs_band = HKRSBand(hkrs_band_str) if hkrs_band_str in [b.value for b in HKRSBand] else HKRSBand.STANDARD
+            
+            output = AppleHealthRiskOutput(
+                agent_id="AppleHealthRiskAgent",
+                success=True,
+                hkrs=hkrs,
+                hkrs_band=hkrs_band,
+                hkrs_band_description=parsed.get("hkrs_band_description", f"HKRS {hkrs:.0f}"),
+                age_adjustment_factor=parsed.get("age_adjustment_factor", 1.0),
+                age_bracket=self._get_age_bracket(patient_profile.demographics.age if patient_profile.demographics else 35),
+                sub_scores=[],  # Simplified for Foundry response
+                raw_score_before_aaf=hkrs / parsed.get("age_adjustment_factor", 1.0),
+                data_quality=DataQuality.HIGH,
+                data_quality_score=85.0,
+                data_gaps=[],
+                risk_class_recommendation=parsed.get("risk_class_recommendation", "Standard"),
+                adjustment_action=parsed.get("adjustment_action", "standard_processing"),
+                approved=parsed.get("approved", True),
+                decision=parsed.get("decision", "approved"),
+                rationale=parsed.get("rationale", "HKRS calculated from Apple Health data"),
+                referral_required=parsed.get("referral_required", False),
+                top_positive_drivers=parsed.get("top_positive_drivers", []),
+                improvement_suggestions=parsed.get("improvement_suggestions", []),
+                summary_scorecard=f"Your HealthKit Risk Score is {hkrs:.0f}/100 ({hkrs_band.value.replace('_', ' ').title()}).",
+                execution_time_ms=execution_time_ms,
+            )
+            
+            # Store decision values in context for CommunicationAgent
+            context._outputs["_risk_level"] = hkrs_band.value
+            context._outputs["_hkrs"] = hkrs
+            context._outputs["_premium_adjustment_pct"] = 0  # HKRS doesn't directly set premium
+            context._outputs["_referral_required"] = parsed.get("referral_required", False)
+            context._outputs["_approved"] = parsed.get("approved", True)
+            context._outputs["_decision"] = parsed.get("decision", "approved")
+            
+            tools_used_for_tracking = tools_used_from_foundry if tools_used_from_foundry else ["hkrs-calculator"]
+        else:
+            # Use local agent
+            output = await self._apple_health_risk_agent.run(input_data)
+            tools_used_for_tracking = ["local-hkrs-calculator"]
+            
+            # Store decision values in context for CommunicationAgent
+            context._outputs["_risk_level"] = output.hkrs_band.value
+            context._outputs["_hkrs"] = output.hkrs
+            context._outputs["_premium_adjustment_pct"] = 0
+            context._outputs["_referral_required"] = output.referral_required
+            context._outputs["_approved"] = output.approved
+            context._outputs["_decision"] = output.decision
+        
+        # Capture actual inputs for transparency
+        actual_inputs = {
+            "health_metrics_source": health_metrics.data_source if health_metrics else "unknown",
+            "age": patient_profile.demographics.age if patient_profile.demographics else None,
+        }
+        context.store_output(
+            "AppleHealthRiskAgent", 
+            output, 
+            step_number=2,
+            actual_inputs=actual_inputs,
+            tools_invoked=tools_used_for_tracking
+        )
+        return output
+    
+    def _get_age_bracket(self, age: int) -> str:
+        """Get age bracket for AAF lookup."""
+        if age < 18:
+            return "18-34"
+        elif age <= 34:
+            return "18-34"
+        elif age <= 44:
+            return "35-44"
+        elif age <= 54:
+            return "45-54"
+        elif age <= 64:
+            return "55-64"
+        else:
+            return "65+"
+    
+    def _load_apple_health_policies(self) -> dict:
+        """Load the Apple Health underwriting policies from JSON file."""
+        import json
+        from pathlib import Path
+        
+        possible_paths = [
+            Path(__file__).parent.parent.parent / "prompts" / "apple-health-underwriting-policies.json",
+        ]
+        
+        for path in possible_paths:
+            if path.exists():
+                try:
+                    with open(path, "r") as f:
+                        policies = json.load(f)
+                        self.logger.info(f"Loaded Apple Health underwriting policies from {path}")
+                        return policies
+                except Exception as e:
+                    self.logger.warning(f"Failed to load Apple Health policies from {path}: {e}")
+        
+        self.logger.warning("No Apple Health underwriting policies file found")
+        return {}
+    
+    def _format_apple_health_metrics_for_prompt(self, metrics: HealthMetrics) -> str:
+        """Format Apple Health metrics for inclusion in the prompt."""
+        if not metrics:
+            return "No metrics available."
+        
+        lines = []
+        
+        if metrics.activity:
+            lines.append(f"Activity: {metrics.activity.daily_steps_avg or 'N/A'} steps/day, {metrics.activity.days_with_data} days of data")
+        
+        if metrics.heart_rate:
+            lines.append(f"Heart Rate: Resting {metrics.heart_rate.resting_hr_avg or 'N/A'} bpm, HRV {metrics.heart_rate.hrv_avg_ms or 'N/A'}ms")
+        
+        if metrics.sleep:
+            lines.append(f"Sleep: {metrics.sleep.avg_sleep_duration_hours or 'N/A'} hours avg")
+        
+        if metrics.fitness:
+            lines.append(f"Fitness: VO2 Max {metrics.fitness.vo2_max or 'N/A'} mL/kg/min")
+        
+        if metrics.mobility:
+            lines.append(f"Mobility: Walking speed {metrics.mobility.walking_speed_avg or 'N/A'} m/s, steadiness: {metrics.mobility.walking_steadiness or 'N/A'}")
+        
+        if metrics.body_metrics:
+            lines.append(f"Body: BMI {metrics.body_metrics.bmi or 'N/A'}, trend: {metrics.body_metrics.bmi_trend or 'N/A'}")
+        
+        return "\n".join(lines) if lines else "No metrics available."
+    
+    def _format_apple_health_policies_for_prompt(self, policies: dict, max_length: int = 2000) -> str:
+        """Format Apple Health policies for inclusion in the prompt."""
+        if not policies:
+            return "Using standard HKRS scoring rules."
+        
+        # Extract key rules
+        summary_parts = []
+        
+        if "hkrs_formula" in policies:
+            summary_parts.append("HKRS Formula: " + policies["hkrs_formula"].get("description", ""))
+        
+        if "age_adjustment_factor" in policies:
+            aaf = policies["age_adjustment_factor"]
+            summary_parts.append(f"Age Adjustment: {aaf.get('description', 'Age-based normalization')}")
+        
+        if "hkrs_bands" in policies:
+            bands = policies["hkrs_bands"]
+            bands_text = ", ".join([f"{k}: {v.get('range', [])}" for k, v in bands.items()])
+            summary_parts.append(f"Score Bands: {bands_text}")
+        
+        return "\n".join(summary_parts)
     
     async def _execute_bias_fairness(
         self,
@@ -2452,25 +2848,47 @@ Return JSON:
         """
         Produce final underwriting decision.
         
-        SIMPLIFIED 2-AGENT WORKFLOW + COMMUNICATION:
-        Uses outputs from HealthDataAnalysis, PolicyRisk, and Communication.
+        DUAL WORKFLOW SUPPORT:
+        - Traditional workflow: Uses PolicyRiskAgent
+        - Apple Health workflow: Uses AppleHealthRiskAgent
         
         IMPORTANT: This method SUMMARIZES agent outputs.
         It does NOT alter or override any agent conclusions.
         """
         # Retrieve agent outputs (READ-ONLY - DO NOT MODIFY)
         pr_output: PolicyRiskOutput = context.get_output("PolicyRiskAgent")
+        ah_output: AppleHealthRiskOutput = context.get_output("AppleHealthRiskAgent")
         comm_output: CommunicationOutput = context.get_output("CommunicationAgent")
         
-        # Get calculated values from PolicyRiskAgent step
-        risk_level_str = context._outputs.get("_risk_level", pr_output.risk_level.value if pr_output else "moderate")
-        premium_adjustment_pct = context._outputs.get("_premium_adjustment_pct", pr_output.premium_adjustment_recommendation.adjustment_percentage if pr_output else 0)
-        adjusted_premium = context._outputs.get("_adjusted_premium", pr_output.premium_adjustment_recommendation.adjusted_premium_annual if pr_output else 1000)
-        referral_required = context._outputs.get("_referral_required", pr_output.referral_required if pr_output else False)
+        # Determine which workflow was used
+        is_apple_health_workflow = ah_output is not None
         
-        # Determine approval status based on agent conclusions (NO OVERRIDES)
-        approved = pr_output.approved if pr_output else True
-        decision = pr_output.decision if pr_output else "approved"
+        if is_apple_health_workflow:
+            # Apple Health workflow - use HKRS for decision
+            risk_level_str = context._outputs.get("_risk_level", ah_output.hkrs_band.value if ah_output else "standard")
+            premium_adjustment_pct = context._outputs.get("_premium_adjustment_pct", 0)
+            adjusted_premium = context._outputs.get("_adjusted_premium", 1000)
+            referral_required = context._outputs.get("_referral_required", ah_output.referral_required if ah_output else False)
+            approved = context._outputs.get("_approved", ah_output.approved if ah_output else True)
+            decision = context._outputs.get("_decision", ah_output.decision if ah_output else "approved")
+            
+            # Map HKRS band to risk level
+            hkrs_to_risk_map = {
+                "excellent": "low",
+                "very_good": "low",
+                "standard_plus": "moderate",
+                "standard": "moderate",
+                "substandard": "high",
+            }
+            risk_level_str = hkrs_to_risk_map.get(risk_level_str, "moderate")
+        else:
+            # Traditional workflow - use PolicyRiskAgent
+            risk_level_str = context._outputs.get("_risk_level", pr_output.risk_level.value if pr_output else "moderate")
+            premium_adjustment_pct = context._outputs.get("_premium_adjustment_pct", pr_output.premium_adjustment_recommendation.adjustment_percentage if pr_output else 0)
+            adjusted_premium = context._outputs.get("_adjusted_premium", pr_output.premium_adjustment_recommendation.adjusted_premium_annual if pr_output else 1000)
+            referral_required = context._outputs.get("_referral_required", pr_output.referral_required if pr_output else False)
+            approved = pr_output.approved if pr_output else True
+            decision = pr_output.decision if pr_output else "approved"
         
         # Map decision to status (DIRECT MAPPING - NO REINTERPRETATION)
         if decision == "declined" or not approved:
@@ -2545,46 +2963,88 @@ Return JSON:
         """
         Generate human-readable explanation of the decision.
         
-        SIMPLIFIED 2-AGENT WORKFLOW:
+        DUAL WORKFLOW SUPPORT:
         This SUMMARIZES the agent outputs without altering conclusions.
         """
         hda_output: HealthDataAnalysisOutput = context.get_output("HealthDataAnalysisAgent")
         pr_output: PolicyRiskOutput = context.get_output("PolicyRiskAgent")
+        ah_output: AppleHealthRiskOutput = context.get_output("AppleHealthRiskAgent")
         
-        # Get calculated values
-        base_premium = context._outputs.get("_base_premium", 1000)
-        triggered_rules = context._outputs.get("_triggered_rules", pr_output.triggered_rules if pr_output else [])
+        # Determine workflow type
+        is_apple_health_workflow = ah_output is not None
         
         # Count risk indicators by level
         risk_counts = {"low": 0, "moderate": 0, "high": 0, "very_high": 0}
-        for indicator in hda_output.risk_indicators:
-            if indicator.risk_level.value in risk_counts:
-                risk_counts[indicator.risk_level.value] += 1
+        if hda_output and hda_output.risk_indicators:
+            for indicator in hda_output.risk_indicators:
+                if indicator.risk_level.value in risk_counts:
+                    risk_counts[indicator.risk_level.value] += 1
         
-        lines = [
-            f"Underwriting Decision for Patient {final_decision.patient_id}",
-            "=" * 60,
-            "",
-            f"DECISION: {final_decision.status.value.upper()}",
-            f"Risk Level: {final_decision.risk_level.value}",
-            f"Premium Adjustment: {final_decision.premium_adjustment_pct:+.1f}%",
-            f"Base Premium: ${base_premium:,.2f}",
-            f"Annual Premium: ${final_decision.adjusted_premium_annual:,.2f}",
-            "",
-            "Analysis Summary:",
-            f"  - Risk indicators identified: {len(hda_output.risk_indicators)}",
-            f"    (Low: {risk_counts['low']}, Moderate: {risk_counts['moderate']}, "
-            f"High: {risk_counts['high']}, Very High: {risk_counts['very_high']})",
-            f"  - Policy rules evaluation: {'Approved' if pr_output.approved else 'Declined'}",
-            "",
-            f"Rationale: {pr_output.rationale}",
-        ]
-        
-        if triggered_rules:
-            lines.append("")
-            lines.append("Triggered Rules:")
-            for rule in triggered_rules[:5]:  # Limit to 5 rules
-                lines.append(f"  - {rule}")
+        if is_apple_health_workflow:
+            # Apple Health workflow explanation
+            lines = [
+                f"HealthKit Risk Assessment for {final_decision.patient_id}",
+                "=" * 60,
+                "",
+                f"DECISION: {final_decision.status.value.upper()}",
+                f"HKRS Score: {ah_output.hkrs:.0f}/100",
+                f"HKRS Band: {ah_output.hkrs_band.value.replace('_', ' ').title()}",
+                f"Risk Class: {ah_output.risk_class_recommendation}",
+                "",
+                "Sub-Score Summary:",
+            ]
+            
+            for sub in ah_output.sub_scores:
+                lines.append(f"  - {sub.category.replace('_', ' ').title()}: {sub.score:.0f}/{sub.max_score:.0f}")
+            
+            lines.extend([
+                "",
+                f"Age Adjustment Factor: {ah_output.age_adjustment_factor:.2f} ({ah_output.age_bracket})",
+                f"Data Quality: {ah_output.data_quality.value}",
+                "",
+                f"Rationale: {ah_output.rationale}",
+            ])
+            
+            if ah_output.top_positive_drivers:
+                lines.append("")
+                lines.append("Positive Health Factors:")
+                for driver in ah_output.top_positive_drivers[:3]:
+                    lines.append(f"  + {driver}")
+            
+            if ah_output.improvement_suggestions:
+                lines.append("")
+                lines.append("Suggestions for Improvement:")
+                for suggestion in ah_output.improvement_suggestions[:3]:
+                    lines.append(f"  → {suggestion}")
+        else:
+            # Traditional workflow explanation
+            base_premium = context._outputs.get("_base_premium", 1000)
+            triggered_rules = context._outputs.get("_triggered_rules", pr_output.triggered_rules if pr_output else [])
+            
+            lines = [
+                f"Underwriting Decision for Patient {final_decision.patient_id}",
+                "=" * 60,
+                "",
+                f"DECISION: {final_decision.status.value.upper()}",
+                f"Risk Level: {final_decision.risk_level.value}",
+                f"Premium Adjustment: {final_decision.premium_adjustment_pct:+.1f}%",
+                f"Base Premium: ${base_premium:,.2f}",
+                f"Annual Premium: ${final_decision.adjusted_premium_annual:,.2f}",
+                "",
+                "Analysis Summary:",
+                f"  - Risk indicators identified: {len(hda_output.risk_indicators) if hda_output else 0}",
+                f"    (Low: {risk_counts['low']}, Moderate: {risk_counts['moderate']}, "
+                f"High: {risk_counts['high']}, Very High: {risk_counts['very_high']})",
+                f"  - Policy rules evaluation: {'Approved' if pr_output and pr_output.approved else 'Declined'}",
+                "",
+                f"Rationale: {pr_output.rationale if pr_output else 'No rationale available'}",
+            ]
+            
+            if triggered_rules:
+                lines.append("")
+                lines.append("Triggered Rules:")
+                for rule in triggered_rules[:5]:
+                    lines.append(f"  - {rule}")
         
         return "\n".join(lines)
     

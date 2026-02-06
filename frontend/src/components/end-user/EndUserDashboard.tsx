@@ -20,7 +20,10 @@ import {
   Loader2,
   ArrowRight,
   AlertCircle,
-  Clock
+  Clock,
+  Footprints,
+  Dumbbell,
+  Wind
 } from 'lucide-react';
 
 interface EndUserDashboardProps {
@@ -138,12 +141,16 @@ export default function EndUserDashboard({ session, connectionResult, onLogout }
     }
   };
 
-  const healthSummary = connectionResult?.health_summary || {
-    bmi: application?.llm_outputs?.health_metrics?.activity?.bmi || 24.5,
-    daily_steps_avg: 8000,
-    resting_hr_avg: 68,
-    sleep_hours_avg: 7.2,
-  };
+  const healthData = connectionResult?.health_data || application?.llm_outputs?.health_metrics || {};
+  
+  // Extract data from all 7 Apple Health categories
+  const activityData = healthData.activity || {};
+  const fitnessData = healthData.fitness || {};
+  const vitalsData = healthData.heart_rate || {};
+  const sleepData = healthData.sleep || {};
+  const bodyData = healthData.body_metrics || {};
+  const mobilityData = healthData.mobility || {};
+  const exerciseData = healthData.exercise || {};
 
   const getRiskLevelColor = (level?: string) => {
     switch (level?.toLowerCase()) {
@@ -254,37 +261,108 @@ export default function EndUserDashboard({ session, connectionResult, onLogout }
               </div>
             </div>
 
-            {/* Health Metrics */}
+            {/* Apple Health Categories - All 7 Categories */}
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-              <div className="flex items-center gap-3 mb-4">
+              <div className="flex items-center gap-3 mb-6">
                 <Heart className="w-5 h-5 text-red-500" />
-                <h2 className="text-lg font-semibold text-gray-900">Health Metrics (from Apple Health)</h2>
+                <h2 className="text-lg font-semibold text-gray-900">Apple Health Data</h2>
+                <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">7 Categories</span>
               </div>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <MetricCard
-                  icon={Scale}
-                  label="BMI"
-                  value={healthSummary.bmi?.toFixed(1)}
-                  status={healthSummary.bmi < 25 ? 'good' : healthSummary.bmi < 30 ? 'warning' : 'alert'}
-                />
-                <MetricCard
-                  icon={Activity}
-                  label="Daily Steps"
-                  value={healthSummary.daily_steps_avg?.toLocaleString()}
-                  status={healthSummary.daily_steps_avg >= 8000 ? 'good' : healthSummary.daily_steps_avg >= 5000 ? 'warning' : 'alert'}
-                />
-                <MetricCard
-                  icon={Heart}
-                  label="Resting HR"
-                  value={`${healthSummary.resting_hr_avg} bpm`}
-                  status={healthSummary.resting_hr_avg < 70 ? 'good' : healthSummary.resting_hr_avg < 85 ? 'warning' : 'alert'}
-                />
-                <MetricCard
-                  icon={Moon}
-                  label="Sleep"
-                  value={`${healthSummary.sleep_hours_avg?.toFixed(1)}h`}
-                  status={healthSummary.sleep_hours_avg >= 7 ? 'good' : healthSummary.sleep_hours_avg >= 6 ? 'warning' : 'alert'}
-                />
+              
+              {/* Category Grid - 7 Categories */}
+              <div className="space-y-4">
+                {/* Row 1: Activity, Fitness, Vitals */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {/* 1. Activity (25% weight) */}
+                  <HealthCategoryCard
+                    title="Activity"
+                    weight="25%"
+                    icon={Activity}
+                    color="blue"
+                    metrics={[
+                      { label: "Daily Steps", value: activityData.daily_steps_avg?.toLocaleString() || "—", unit: "" },
+                      { label: "Active Energy", value: activityData.active_energy_burned_avg?.toFixed(0) || "—", unit: "kcal" },
+                      { label: "Data Days", value: activityData.days_with_data || "—", unit: "" },
+                    ]}
+                    trend={activityData.trend_6mo}
+                  />
+                  
+                  {/* 2. Fitness (20% weight) */}
+                  <HealthCategoryCard
+                    title="Fitness"
+                    weight="20%"
+                    icon={Wind}
+                    color="purple"
+                    metrics={[
+                      { label: "VO2 Max", value: fitnessData.vo2_max?.toFixed(1) || "—", unit: "mL/kg/min" },
+                      { label: "Readings", value: fitnessData.vo2_max_readings || "—", unit: "" },
+                    ]}
+                  />
+                  
+                  {/* 3. Vitals / Heart Health (20% weight) */}
+                  <HealthCategoryCard
+                    title="Vitals"
+                    weight="20%"
+                    icon={Heart}
+                    color="red"
+                    metrics={[
+                      { label: "Resting HR", value: vitalsData.resting_hr_avg || "—", unit: "bpm" },
+                      { label: "HRV", value: vitalsData.hrv_avg_ms?.toFixed(0) || "—", unit: "ms" },
+                      { label: "Irregular Events", value: vitalsData.irregular_rhythm_events ?? "—", unit: "" },
+                    ]}
+                  />
+                </div>
+
+                {/* Row 2: Sleep, Body Metrics, Mobility, Exercise */}
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                  {/* 4. Sleep (15% weight) */}
+                  <HealthCategoryCard
+                    title="Sleep"
+                    weight="15%"
+                    icon={Moon}
+                    color="indigo"
+                    metrics={[
+                      { label: "Duration", value: sleepData.avg_sleep_duration_hours?.toFixed(1) || "—", unit: "hrs" },
+                      { label: "Variance", value: sleepData.sleep_consistency_variance_hours?.toFixed(1) || "—", unit: "hrs" },
+                    ]}
+                  />
+                  
+                  {/* 5. Body Metrics (10% weight) */}
+                  <HealthCategoryCard
+                    title="Body Metrics"
+                    weight="10%"
+                    icon={Scale}
+                    color="green"
+                    metrics={[
+                      { label: "BMI", value: bodyData.bmi?.toFixed(1) || "—", unit: "" },
+                      { label: "Trend", value: bodyData.bmi_trend || "—", unit: "" },
+                    ]}
+                  />
+                  
+                  {/* 6. Mobility (10% weight) */}
+                  <HealthCategoryCard
+                    title="Mobility"
+                    weight="10%"
+                    icon={Footprints}
+                    color="amber"
+                    metrics={[
+                      { label: "Walk Speed", value: mobilityData.walking_speed_avg?.toFixed(2) || "—", unit: "m/s" },
+                      { label: "Steadiness", value: mobilityData.walking_steadiness || "—", unit: "" },
+                    ]}
+                  />
+                  
+                  {/* 7. Exercise (Activity subset) */}
+                  <HealthCategoryCard
+                    title="Exercise"
+                    weight="—"
+                    icon={Dumbbell}
+                    color="orange"
+                    metrics={[
+                      { label: "Weekly", value: exerciseData.workout_frequency_weekly || "—", unit: "sessions" },
+                      { label: "Duration", value: exerciseData.workout_avg_duration_minutes || "—", unit: "min" },
+                    ]}
+                  />
+                </div>
               </div>
             </div>
 
@@ -520,6 +598,78 @@ function MetricCard({
       </div>
       <p className="text-2xl font-semibold text-gray-900">{value}</p>
       <p className="text-sm text-gray-500">{label}</p>
+    </div>
+  );
+}
+
+// Health Category Card for Apple Health 7 categories
+function HealthCategoryCard({
+  title,
+  weight,
+  icon: Icon,
+  color,
+  metrics,
+  trend,
+}: {
+  title: string;
+  weight: string;
+  icon: any;
+  color: 'blue' | 'purple' | 'red' | 'indigo' | 'green' | 'amber' | 'orange';
+  metrics: { label: string; value: string | number; unit: string }[];
+  trend?: string;
+}) {
+  const colorClasses = {
+    blue: 'bg-blue-50 border-blue-200 text-blue-600',
+    purple: 'bg-purple-50 border-purple-200 text-purple-600',
+    red: 'bg-red-50 border-red-200 text-red-600',
+    indigo: 'bg-indigo-50 border-indigo-200 text-indigo-600',
+    green: 'bg-green-50 border-green-200 text-green-600',
+    amber: 'bg-amber-50 border-amber-200 text-amber-600',
+    orange: 'bg-orange-50 border-orange-200 text-orange-600',
+  };
+
+  const iconBgClasses = {
+    blue: 'bg-blue-100',
+    purple: 'bg-purple-100',
+    red: 'bg-red-100',
+    indigo: 'bg-indigo-100',
+    green: 'bg-green-100',
+    amber: 'bg-amber-100',
+    orange: 'bg-orange-100',
+  };
+
+  const getTrendIcon = (trend?: string) => {
+    if (!trend) return null;
+    const t = trend.toLowerCase();
+    if (t === 'improving' || t === 'stable_or_improving') return <TrendingUp className="w-3 h-3 text-green-500" />;
+    if (t === 'declining' || t === 'significant_increase') return <TrendingDown className="w-3 h-3 text-red-500" />;
+    return <Minus className="w-3 h-3 text-gray-400" />;
+  };
+
+  return (
+    <div className={`rounded-lg border p-4 ${colorClasses[color].split(' ').slice(0, 2).join(' ')}`}>
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <div className={`p-1.5 rounded-lg ${iconBgClasses[color]}`}>
+            <Icon className={`w-4 h-4 ${colorClasses[color].split(' ')[2]}`} />
+          </div>
+          <span className="font-medium text-gray-900">{title}</span>
+        </div>
+        <div className="flex items-center gap-1">
+          {trend && getTrendIcon(trend)}
+          <span className="text-xs text-gray-500 font-medium">{weight}</span>
+        </div>
+      </div>
+      <div className="space-y-2">
+        {metrics.map((metric, idx) => (
+          <div key={idx} className="flex items-center justify-between text-sm">
+            <span className="text-gray-500">{metric.label}</span>
+            <span className="font-medium text-gray-900">
+              {metric.value} {metric.unit && <span className="text-gray-400 text-xs">{metric.unit}</span>}
+            </span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

@@ -225,3 +225,81 @@ class AzureBlobStorageProvider:
             logger.info("Deleted application %s", app_id)
         
         return deleted
+    
+    # =========================================================================
+    # Apple Health Container Support
+    # =========================================================================
+    
+    def get_apple_health_container_client(self):
+        """Get or create a container client for Apple Health applications.
+        
+        Uses the apple_health_container_name setting (defaults to 'apple-health-applications').
+        """
+        from azure.core.exceptions import ResourceExistsError
+        
+        container_name = self._settings.apple_health_container_name or "apple-health-applications"
+        container_client = self._blob_service.get_container_client(container_name)
+        
+        # Ensure container exists
+        try:
+            container_client.create_container()
+            logger.info("Created Apple Health container '%s'", container_name)
+        except ResourceExistsError:
+            logger.debug("Apple Health container '%s' already exists", container_name)
+        
+        return container_client
+    
+    def save_apple_health_application(self, app_id: str, filename: str, content: bytes) -> str:
+        """Save a file to the Apple Health applications container.
+        
+        Returns:
+            Blob path where the file was saved.
+        """
+        container_client = self.get_apple_health_container_client()
+        blob_path = f"applications/{app_id}/files/{filename}"
+        blob_client = container_client.get_blob_client(blob_path)
+        
+        blob_client.upload_blob(content, overwrite=True)
+        
+        logger.debug("Saved Apple Health file to blob: %s", blob_path)
+        return blob_path
+    
+    def save_apple_health_metadata(self, app_id: str, metadata: Dict[str, Any]) -> None:
+        """Save Apple Health application metadata."""
+        container_client = self.get_apple_health_container_client()
+        blob_path = f"applications/{app_id}/metadata.json"
+        content = json.dumps(metadata, indent=2).encode("utf-8")
+        
+        blob_client = container_client.get_blob_client(blob_path)
+        blob_client.upload_blob(content, overwrite=True)
+        
+        logger.debug("Saved Apple Health metadata for app %s", app_id)
+    
+    def load_apple_health_metadata(self, app_id: str) -> Optional[Dict[str, Any]]:
+        """Load Apple Health application metadata."""
+        from azure.core.exceptions import ResourceNotFoundError
+        
+        container_client = self.get_apple_health_container_client()
+        blob_path = f"applications/{app_id}/metadata.json"
+        blob_client = container_client.get_blob_client(blob_path)
+        
+        try:
+            download = blob_client.download_blob()
+            content = download.readall()
+            return json.loads(content.decode("utf-8"))
+        except ResourceNotFoundError:
+            logger.warning("Apple Health metadata not found: %s", blob_path)
+            return None
+    
+    def list_apple_health_applications(self) -> List[str]:
+        """List all Apple Health application IDs."""
+        container_client = self.get_apple_health_container_client()
+        prefix = "applications/"
+        app_ids = set()
+        
+        for blob in container_client.list_blobs(name_starts_with=prefix):
+            parts = blob.name.split("/")
+            if len(parts) >= 2:
+                app_ids.add(parts[1])
+        
+        return list(app_ids)

@@ -19,26 +19,23 @@ Agent Architecture:
 Available Agents:
 ----------------
 - HealthDataAnalysisAgent: Analyze health metrics for risk signals
-- PolicyRiskAgent: Translate health signals to insurance risk categories  
-- BusinessRulesValidationAgent: Validate underwriting rules compliance
+- PolicyRiskAgent: Translate health signals to insurance risk categories
+- AppleHealthRiskAgent: Calculate HKRS for Apple Health workflow
 - DataQualityConfidenceAgent: Assess data reliability and completeness
 - BiasAndFairnessAgent: Detect bias in decision context
 - CommunicationAgent: Generate explanations for stakeholders
 - AuditAndTraceAgent: Produce decision audit trails
 - OrchestratorAgent: Coordinate agent execution and produce final decision
 
-Orchestrator Pattern:
---------------------
-The OrchestratorAgent coordinates all agents in a STRICT execution order:
-1. HealthDataAnalysisAgent
-2. DataQualityConfidenceAgent
-3. PolicyRiskAgent
-4. BusinessRulesValidationAgent
-5. BiasAndFairnessAgent
-6. CommunicationAgent
-7. AuditAndTraceAgent
+Workflows:
+---------
+ADMIN WORKFLOW (Traditional - document upload):
+  HealthDataAnalysisAgent → PolicyRiskAgent → CommunicationAgent
 
-The orchestrator summarizes outputs but does NOT alter agent conclusions.
+APPLE HEALTH WORKFLOW (End User - HealthKit data):
+  HealthDataAnalysisAgent → AppleHealthRiskAgent → CommunicationAgent
+
+The orchestrator selects workflow based on persona (admin vs end_user).
 """
 
 from app.agents.base import (
@@ -50,6 +47,7 @@ from app.agents.base import (
 )
 from app.agents.health_data_analysis import HealthDataAnalysisAgent
 from app.agents.policy_risk import PolicyRiskAgent
+from app.agents.apple_health_risk import AppleHealthRiskAgent
 from app.agents.data_quality_confidence import DataQualityConfidenceAgent
 from app.agents.bias_fairness import BiasAndFairnessAgent
 from app.agents.communication import CommunicationAgent
@@ -63,9 +61,10 @@ __all__ = [
     "AgentOutput",
     "AgentExecutionError",
     "AgentValidationError",
-    # Agent implementations (simplified 2-agent + communication workflow)
+    # Agent implementations
     "HealthDataAnalysisAgent",
     "PolicyRiskAgent",
+    "AppleHealthRiskAgent",  # Apple Health workflow
     "DataQualityConfidenceAgent",
     "BiasAndFairnessAgent",
     "CommunicationAgent",

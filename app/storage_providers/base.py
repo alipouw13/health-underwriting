@@ -28,6 +28,9 @@ class StorageSettings:
     azure_timeout_seconds: int = 30
     azure_retry_total: int = 3
     
+    # Apple Health workflow container (separate storage for end-user data)
+    apple_health_container_name: Optional[str] = None
+    
     # Optional public URL for file access
     public_base_url: Optional[str] = None
 
@@ -50,6 +53,7 @@ class StorageSettings:
             azure_timeout_seconds=int(os.getenv("AZURE_STORAGE_TIMEOUT_SECONDS", "30")),
             azure_retry_total=int(os.getenv("AZURE_STORAGE_RETRY_TOTAL", "3")),
             public_base_url=os.getenv("PUBLIC_FILES_BASE_URL"),
+            apple_health_container_name=os.getenv("AZURE_APPLE_HEALTH_CONTAINER_NAME", "apple-health-applications"),
         )
 
 
