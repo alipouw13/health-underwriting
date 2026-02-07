@@ -128,8 +128,20 @@
 
   "sub_scores": {
     "activity_score": {
+      "name": "Activity Score",
+      "category": "activity",
       "weight": 0.25,
       "max_points": 25,
+      "description": "Measures daily physical activity levels based on step count. Higher daily steps indicate better cardiovascular health and lower mortality risk. Includes trend analysis to reward improving activity patterns.",
+      "criteria": [
+        {"id": "ACT-001", "condition": "Steps per day > 8,000", "points": 25, "rationale": "Excellent activity level associated with significantly reduced all-cause mortality"},
+        {"id": "ACT-002", "condition": "Steps per day 6,000-7,999", "points": 18, "rationale": "Good activity level meeting most health guidelines"},
+        {"id": "ACT-003", "condition": "Steps per day 4,000-5,999", "points": 10, "rationale": "Moderate activity level; room for improvement"},
+        {"id": "ACT-004", "condition": "Steps per day < 4,000", "points": 0, "rationale": "Low activity level associated with increased health risks"},
+        {"id": "ACT-005", "condition": "Upward trend over 6 months", "points": 3, "rationale": "Improving activity pattern indicates positive lifestyle change"},
+        {"id": "ACT-006", "condition": "Stable trend over 6 months", "points": 0, "rationale": "Consistent activity level maintained"},
+        {"id": "ACT-007", "condition": "Declining trend over 6 months", "points": -3, "rationale": "Decreasing activity may indicate health concerns or lifestyle changes"}
+      ],
       "calculation": {
         "steps_per_day": {
           ">8000": 25,
@@ -145,9 +157,17 @@
       }
     },
     "vo2_max_score": {
+      "name": "VO2 Max Score",
+      "category": "fitness",
       "weight": 0.20,
       "max_points": 20,
-      "description": "Cardiorespiratory fitness - age and sex normalized",
+      "description": "Cardiorespiratory fitness capacity measured by VO2 max. This is one of the strongest predictors of longevity. Values are age and sex normalized to ensure fair comparison across demographics.",
+      "criteria": [
+        {"id": "VO2-001", "condition": "VO2 max ≥ 75th percentile (age/sex adjusted)", "points": 20, "rationale": "Superior cardiovascular fitness strongly correlated with longevity"},
+        {"id": "VO2-002", "condition": "VO2 max 50th-74th percentile (age/sex adjusted)", "points": 15, "rationale": "Above average cardiovascular fitness"},
+        {"id": "VO2-003", "condition": "VO2 max 25th-49th percentile (age/sex adjusted)", "points": 8, "rationale": "Average cardiovascular fitness for age group"},
+        {"id": "VO2-004", "condition": "VO2 max < 25th percentile (age/sex adjusted)", "points": 0, "rationale": "Below average cardiovascular fitness; increased health risk"}
+      ],
       "calculation": {
         "percentile": {
           ">=75": 20,
@@ -159,8 +179,21 @@
       "normalization": "age_and_sex_adjusted"
     },
     "heart_health_score": {
+      "name": "Heart Health Score",
+      "category": "vitals",
       "weight": 0.20,
       "max_points": 20,
+      "description": "Evaluates cardiovascular health through resting heart rate and heart rate variability (HRV). Lower resting HR and higher HRV indicate better autonomic nervous system function and cardiac efficiency.",
+      "criteria": [
+        {"id": "HRT-001", "condition": "Resting heart rate 50-70 bpm", "points": 10, "rationale": "Optimal resting heart rate indicating good cardiac efficiency"},
+        {"id": "HRT-002", "condition": "Resting heart rate 71-75 bpm", "points": 7, "rationale": "Slightly elevated but within acceptable range"},
+        {"id": "HRT-003", "condition": "Resting heart rate 76-80 bpm", "points": 4, "rationale": "Elevated resting heart rate; moderate concern"},
+        {"id": "HRT-004", "condition": "Resting heart rate > 80 bpm", "points": 0, "rationale": "High resting heart rate associated with increased cardiovascular risk"},
+        {"id": "HRT-005", "condition": "Resting heart rate < 50 bpm", "points": 5, "rationale": "Athletic bradycardia or potential concern; partial credit"},
+        {"id": "HRT-006", "condition": "HRV ≥ 60th percentile (age-normalized)", "points": 10, "rationale": "Excellent heart rate variability indicating strong parasympathetic function"},
+        {"id": "HRT-007", "condition": "HRV 40th-59th percentile (age-normalized)", "points": 6, "rationale": "Average heart rate variability"},
+        {"id": "HRT-008", "condition": "HRV < 40th percentile (age-normalized)", "points": 0, "rationale": "Low HRV associated with increased mortality risk"}
+      ],
       "calculation": {
         "resting_hr": {
           "preferred_range_bpm": [50, 70],
@@ -186,8 +219,21 @@
       "partial_credit": true
     },
     "sleep_health_score": {
+      "name": "Sleep Health Score",
+      "category": "sleep",
       "weight": 0.15,
       "max_points": 15,
+      "description": "Assesses sleep quantity and consistency. Quality sleep of 7-8 hours with regular timing is associated with better health outcomes, cognitive function, and reduced mortality risk.",
+      "criteria": [
+        {"id": "SLP-001", "condition": "Average sleep duration 7-8 hours", "points": 10, "rationale": "Optimal sleep duration per sleep medicine guidelines"},
+        {"id": "SLP-002", "condition": "Average sleep duration 6-6.9 hours", "points": 6, "rationale": "Slightly below optimal; adequate for most adults"},
+        {"id": "SLP-003", "condition": "Average sleep duration 8.1-9 hours", "points": 6, "rationale": "Slightly above optimal; generally acceptable"},
+        {"id": "SLP-004", "condition": "Average sleep duration < 6 hours", "points": 0, "rationale": "Insufficient sleep associated with multiple health risks"},
+        {"id": "SLP-005", "condition": "Average sleep duration > 9 hours", "points": 3, "rationale": "Excessive sleep may indicate underlying health issues"},
+        {"id": "SLP-006", "condition": "Sleep timing variance within 1 hour", "points": 5, "rationale": "Consistent sleep schedule supports circadian rhythm health"},
+        {"id": "SLP-007", "condition": "Sleep timing variance 1-2 hours", "points": 3, "rationale": "Moderate sleep schedule variability"},
+        {"id": "SLP-008", "condition": "Sleep timing variance > 2 hours", "points": 0, "rationale": "Irregular sleep patterns associated with health risks"}
+      ],
       "calculation": {
         "duration": {
           "optimal_hours": [7, 8],
@@ -212,8 +258,16 @@
       }
     },
     "body_composition_score": {
+      "name": "Body Composition Score",
+      "category": "body_metrics",
       "weight": 0.10,
       "max_points": 10,
+      "description": "Tracks weight and BMI trends over time. Stable or improving body composition indicates healthy lifestyle maintenance. Focus is on trends rather than absolute values to avoid penalizing healthy individuals.",
+      "criteria": [
+        {"id": "BDY-001", "condition": "Weight/BMI stable or improving (within ±2%)", "points": 10, "rationale": "Stable body composition indicates consistent healthy habits"},
+        {"id": "BDY-002", "condition": "Weight/BMI mild increase (2-5%)", "points": 5, "rationale": "Minor weight gain; monitoring recommended"},
+        {"id": "BDY-003", "condition": "Weight/BMI significant increase (> 5%)", "points": 0, "rationale": "Notable weight gain may indicate lifestyle or health changes"}
+      ],
       "calculation": {
         "bmi_or_weight_trend": {
           "stable_or_improving": 10,
@@ -228,8 +282,19 @@
       }
     },
     "mobility_score": {
+      "name": "Mobility Score",
+      "category": "mobility",
       "weight": 0.10,
       "max_points": 10,
+      "description": "Evaluates movement quality through walking speed and steadiness. These metrics are strong predictors of functional health and fall risk, particularly important for longevity assessment.",
+      "criteria": [
+        {"id": "MOB-001", "condition": "Walking speed > 60th percentile (age-adjusted)", "points": 5, "rationale": "Above average walking speed indicates good functional mobility"},
+        {"id": "MOB-002", "condition": "Walking speed 40th-60th percentile (age-adjusted)", "points": 3, "rationale": "Average walking speed for age group"},
+        {"id": "MOB-003", "condition": "Walking speed < 40th percentile (age-adjusted)", "points": 0, "rationale": "Below average walking speed may indicate mobility concerns"},
+        {"id": "MOB-004", "condition": "Walking steadiness: Normal", "points": 5, "rationale": "Stable gait with low fall risk"},
+        {"id": "MOB-005", "condition": "Walking steadiness: Slightly unsteady", "points": 2, "rationale": "Minor balance concerns; moderate fall risk"},
+        {"id": "MOB-006", "condition": "Walking steadiness: Unsteady", "points": 0, "rationale": "Significant balance issues; elevated fall risk"}
+      ],
       "calculation": {
         "walking_speed": {
           "threshold": "age 60th percentile",

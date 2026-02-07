@@ -10,6 +10,7 @@ import {
   FileText,
   AlertCircle,
   Check,
+  Heart,
 } from 'lucide-react';
 import {
   createApplication,
@@ -33,14 +34,16 @@ import {
   deletePolicy as deletePolicyApi,
   reindexAllPolicies,
   getIndexStats,
+  getAppleHealthPolicies,
+  updateAppleHealthPolicies,
 } from '@/lib/api';
 import type { ApplicationListItem, PromptsData, AnalyzerStatus, AnalyzerInfo, FieldSchema, UnderwritingPolicy, PolicyCriteriaItem } from '@/lib/types';
-import type { IndexStats } from '@/lib/api';
+import type { IndexStats, AppleHealthPolicies, AppleHealthCriterion } from '@/lib/api';
 import PersonaSelector from '@/components/PersonaSelector';
 import { usePersona } from '@/lib/PersonaContext';
 
 type ProcessingStep = 'idle' | 'uploading' | 'extracting' | 'analyzing' | 'complete' | 'error';
-type AdminTab = 'documents' | 'prompts' | 'policies' | 'analyzer';
+type AdminTab = 'documents' | 'prompts' | 'policies' | 'apple-health-policies' | 'analyzer';
 
 interface ProcessingState {
   step: ProcessingStep;
@@ -118,6 +121,14 @@ export default function AdminPage() {
   // Claims policy form state (different structure)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [claimsPolicyFormData, setClaimsPolicyFormData] = useState<Record<string, any>>({});
+  
+  // Apple Health policies state
+  const [appleHealthPolicies, setAppleHealthPolicies] = useState<AppleHealthPolicies | null>(null);
+  const [appleHealthPoliciesLoading, setAppleHealthPoliciesLoading] = useState(false);
+  const [appleHealthPoliciesSaving, setAppleHealthPoliciesSaving] = useState(false);
+  const [appleHealthPoliciesError, setAppleHealthPoliciesError] = useState<string | null>(null);
+  const [appleHealthPoliciesSuccess, setAppleHealthPoliciesSuccess] = useState<string | null>(null);
+  const [selectedSubScoreKey, setSelectedSubScoreKey] = useState<string | null>(null);
   
   // Helper to check if current persona is claims-related
   const isClaimsPersona = currentPersona.includes('claims');
@@ -297,6 +308,20 @@ export default function AdminPage() {
     }
   }, [currentPersona]);
 
+  // Load Apple Health policies
+  const loadAppleHealthPolicies = useCallback(async () => {
+    setAppleHealthPoliciesLoading(true);
+    setAppleHealthPoliciesError(null);
+    try {
+      const data = await getAppleHealthPolicies();
+      setAppleHealthPolicies(data.policies);
+    } catch (err) {
+      setAppleHealthPoliciesError(err instanceof Error ? err.message : 'Failed to load Apple Health policies');
+    } finally {
+      setAppleHealthPoliciesLoading(false);
+    }
+  }, []);
+
   // Load index stats when policies tab is active
   const loadIndexStats = useCallback(async () => {
     try {
@@ -327,6 +352,13 @@ export default function AdminPage() {
       loadIndexStats(); // Also load RAG index stats
     }
   }, [activeTab, policies.length, policiesLoading, loadPolicies, loadIndexStats]);
+
+  // Load Apple Health policies when tab becomes active
+  useEffect(() => {
+    if (activeTab === 'apple-health-policies' && !appleHealthPolicies && !appleHealthPoliciesLoading) {
+      loadAppleHealthPolicies();
+    }
+  }, [activeTab, appleHealthPolicies, appleHealthPoliciesLoading, loadAppleHealthPolicies]);
 
   // Reload prompts when persona changes
   useEffect(() => {
@@ -1417,6 +1449,528 @@ export default function AdminPage() {
     </div>
   );
 
+  // Handle saving Apple Health policies
+  const handleSaveAppleHealthPolicies = async () => {
+    if (!appleHealthPolicies) return;
+    
+    setAppleHealthPoliciesSaving(true);
+    setAppleHealthPoliciesError(null);
+    setAppleHealthPoliciesSuccess(null);
+    
+    try {
+      await updateAppleHealthPolicies(appleHealthPolicies);
+      setAppleHealthPoliciesSuccess('Apple Health policies saved successfully');
+      setTimeout(() => setAppleHealthPoliciesSuccess(null), 3000);
+    } catch (err) {
+      setAppleHealthPoliciesError(err instanceof Error ? err.message : 'Failed to save policies');
+    } finally {
+      setAppleHealthPoliciesSaving(false);
+    }
+  };
+
+  // Render Apple Health Policies Tab content
+  const renderAppleHealthPoliciesTab = () => {
+    // Helper to get display name for a sub-score key
+    const getDisplayName = (key: string, score: { name?: string }) => {
+      return score.name || key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+    };
+
+    // Helper to get category for a sub-score key
+    const getCategoryFromKey = (key: string): string => {
+      if (key.includes('activity')) return 'activity';
+      if (key.includes('vo2') || key.includes('fitness')) return 'fitness';
+      if (key.includes('heart') || key.includes('hrv')) return 'vitals';
+      if (key.includes('sleep')) return 'sleep';
+      if (key.includes('body') || key.includes('bmi') || key.includes('weight')) return 'body_metrics';
+      if (key.includes('mobility') || key.includes('walking')) return 'mobility';
+      return 'general';
+    };
+
+    // Helper to update a sub-score field
+    const updateSubScoreField = (field: string, value: string | number) => {
+      if (!selectedSubScoreKey || !appleHealthPolicies?.sub_scores) return;
+      setAppleHealthPolicies(prev => {
+        if (!prev || !prev.sub_scores) return prev;
+        return {
+          ...prev,
+          sub_scores: {
+            ...prev.sub_scores,
+            [selectedSubScoreKey]: {
+              ...prev.sub_scores[selectedSubScoreKey],
+              [field]: value
+            }
+          }
+        };
+      });
+    };
+
+    // Helper to add a new criterion
+    const addCriterion = () => {
+      if (!selectedSubScoreKey || !appleHealthPolicies?.sub_scores) return;
+      const currentCriteria = appleHealthPolicies.sub_scores[selectedSubScoreKey].criteria || [];
+      const newCriterion: AppleHealthCriterion = {
+        id: `${selectedSubScoreKey.toUpperCase().replace(/_/g, '-')}-${String(currentCriteria.length + 1).padStart(3, '0')}`,
+        condition: '',
+        points: 0,
+        rationale: ''
+      };
+      setAppleHealthPolicies(prev => {
+        if (!prev || !prev.sub_scores) return prev;
+        return {
+          ...prev,
+          sub_scores: {
+            ...prev.sub_scores,
+            [selectedSubScoreKey]: {
+              ...prev.sub_scores[selectedSubScoreKey],
+              criteria: [...currentCriteria, newCriterion]
+            }
+          }
+        };
+      });
+    };
+
+    // Helper to update a criterion
+    const updateCriterion = (idx: number, field: keyof AppleHealthCriterion, value: string | number) => {
+      if (!selectedSubScoreKey || !appleHealthPolicies?.sub_scores) return;
+      const currentCriteria = [...(appleHealthPolicies.sub_scores[selectedSubScoreKey].criteria || [])];
+      currentCriteria[idx] = { ...currentCriteria[idx], [field]: value };
+      setAppleHealthPolicies(prev => {
+        if (!prev || !prev.sub_scores) return prev;
+        return {
+          ...prev,
+          sub_scores: {
+            ...prev.sub_scores,
+            [selectedSubScoreKey]: {
+              ...prev.sub_scores[selectedSubScoreKey],
+              criteria: currentCriteria
+            }
+          }
+        };
+      });
+    };
+
+    // Helper to remove a criterion
+    const removeCriterion = (idx: number) => {
+      if (!selectedSubScoreKey || !appleHealthPolicies?.sub_scores) return;
+      const currentCriteria = [...(appleHealthPolicies.sub_scores[selectedSubScoreKey].criteria || [])];
+      currentCriteria.splice(idx, 1);
+      setAppleHealthPolicies(prev => {
+        if (!prev || !prev.sub_scores) return prev;
+        return {
+          ...prev,
+          sub_scores: {
+            ...prev.sub_scores,
+            [selectedSubScoreKey]: {
+              ...prev.sub_scores[selectedSubScoreKey],
+              criteria: currentCriteria
+            }
+          }
+        };
+      });
+    };
+
+    return (
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      {/* Sub-Score List */}
+      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+        <div className="px-5 py-4 border-b border-slate-200 bg-slate-50">
+          <div className="flex items-center justify-between">
+            <h2 className="text-base font-semibold text-slate-900 flex items-center gap-2">
+              <Heart className="w-5 h-5 text-rose-500" />
+              Apple Health Policies
+            </h2>
+          </div>
+          <div className="flex gap-2 mt-3">
+            <button
+              onClick={loadAppleHealthPolicies}
+              disabled={appleHealthPoliciesLoading}
+              className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-sm font-medium border border-slate-300 text-slate-700 bg-white rounded-lg hover:bg-slate-50 hover:border-slate-400 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              <RefreshCw className={`w-4 h-4 ${appleHealthPoliciesLoading ? 'animate-spin' : ''}`} />
+              Reload
+            </button>
+          </div>
+        </div>
+
+        {/* Policy Info */}
+        {appleHealthPolicies && (
+          <div className="px-5 py-3 bg-indigo-50 border-b border-indigo-100">
+            <div className="text-xs font-medium text-indigo-800">
+              {appleHealthPolicies.policy_set_name}
+            </div>
+            <div className="text-xs text-indigo-600 mt-0.5">
+              v{appleHealthPolicies.version} • {appleHealthPolicies.effective_date || 'No effective date'}
+            </div>
+          </div>
+        )}
+
+        {/* Sub-Score List */}
+        <div className="p-3">
+          {appleHealthPoliciesLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="w-6 h-6 text-indigo-600 animate-spin" />
+            </div>
+          ) : !appleHealthPolicies ? (
+            <div className="text-center py-12">
+              <Heart className="w-10 h-10 text-slate-300 mx-auto mb-3" />
+              <p className="text-sm text-slate-500">No policies loaded</p>
+              <p className="text-xs text-slate-400 mt-1">Click Reload to fetch policies</p>
+            </div>
+          ) : (
+            <div className="space-y-1.5 max-h-[550px] overflow-y-auto">
+              {/* Overview Item */}
+              <button
+                onClick={() => setSelectedSubScoreKey(null)}
+                className={`w-full text-left px-3 py-2.5 rounded-lg border transition-all ${
+                  selectedSubScoreKey === null
+                    ? 'border-indigo-500 bg-indigo-50 shadow-sm'
+                    : 'border-transparent hover:border-slate-200 hover:bg-slate-50'
+                }`}
+              >
+                <div className="font-medium text-slate-900 text-sm">Overview</div>
+                <div className="text-xs text-slate-500 mt-0.5">Policy set configuration</div>
+              </button>
+              
+              {/* Sub-Scores */}
+              {appleHealthPolicies.sub_scores && Object.entries(appleHealthPolicies.sub_scores).map(([key, score]) => (
+                <button
+                  key={key}
+                  onClick={() => setSelectedSubScoreKey(key)}
+                  className={`w-full text-left px-3 py-2.5 rounded-lg border transition-all ${
+                    selectedSubScoreKey === key
+                      ? 'border-indigo-500 bg-indigo-50 shadow-sm'
+                      : 'border-transparent hover:border-slate-200 hover:bg-slate-50'
+                  }`}
+                >
+                  <div className="font-medium text-slate-900 text-sm">{getDisplayName(key, score)}</div>
+                  <div className="text-xs text-slate-500 mt-0.5">
+                    {score.category || getCategoryFromKey(key)} • {(score.weight * 100).toFixed(0)}% • {score.max_points} pts
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Editor Panel */}
+      <div className="lg:col-span-2 bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+        {appleHealthPoliciesError && (
+          <div className="mx-5 mt-5 p-3 bg-rose-50 border border-rose-200 rounded-lg text-rose-700 text-sm flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 flex-shrink-0" />
+            {appleHealthPoliciesError}
+          </div>
+        )}
+        {appleHealthPoliciesSuccess && (
+          <div className="mx-5 mt-5 p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-emerald-700 text-sm flex items-center gap-2">
+            <Check className="w-4 h-4 flex-shrink-0" />
+            {appleHealthPoliciesSuccess}
+          </div>
+        )}
+
+        {appleHealthPolicies ? (
+          <div>
+            {/* Editor Header */}
+            <div className="px-5 py-4 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
+              <h2 className="text-base font-semibold text-slate-900">
+                {selectedSubScoreKey 
+                  ? `Edit Policy: ${getDisplayName(selectedSubScoreKey, appleHealthPolicies.sub_scores?.[selectedSubScoreKey] || {})}`
+                  : 'Policy Overview'}
+              </h2>
+              <button
+                onClick={handleSaveAppleHealthPolicies}
+                disabled={appleHealthPoliciesSaving}
+                className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+              >
+                {appleHealthPoliciesSaving ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  'Save Changes'
+                )}
+              </button>
+            </div>
+
+            {/* Editor Content */}
+            <div className="p-5">
+              {selectedSubScoreKey === null ? (
+                /* Overview View */
+                <div className="space-y-6">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Policy Set Name</label>
+                      <input
+                        type="text"
+                        value={appleHealthPolicies.policy_set_name || ''}
+                        onChange={(e) => setAppleHealthPolicies(prev => prev ? { ...prev, policy_set_name: e.target.value } : null)}
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Version</label>
+                      <input
+                        type="text"
+                        value={appleHealthPolicies.version || ''}
+                        onChange={(e) => setAppleHealthPolicies(prev => prev ? { ...prev, version: e.target.value } : null)}
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
+                      />
+                    </div>
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Description</label>
+                    <textarea
+                      value={appleHealthPolicies.description || ''}
+                      onChange={(e) => setAppleHealthPolicies(prev => prev ? { ...prev, description: e.target.value } : null)}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm h-24"
+                    />
+                  </div>
+
+                  {/* HKRS Formula Summary */}
+                  {appleHealthPolicies.hkrs_formula && (
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-2">HKRS Formula Components</label>
+                      <div className="bg-slate-50 rounded-lg p-4 border border-slate-200">
+                        <p className="text-xs text-slate-600 mb-3">{(appleHealthPolicies.hkrs_formula as { description?: string }).description}</p>
+                        <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                          {((appleHealthPolicies.hkrs_formula as { components?: Array<{ name: string; weight: number; max_points: number }> }).components || []).map((comp, idx) => (
+                            <div key={idx} className="bg-white px-3 py-2 rounded border border-slate-200">
+                              <div className="text-xs font-medium text-slate-800">{comp.name.replace(/_/g, ' ')}</div>
+                              <div className="text-xs text-slate-500">
+                                {(comp.weight * 100).toFixed(0)}% • {comp.max_points} pts
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Scoring Tiers */}
+                  {appleHealthPolicies.scoring_tiers && appleHealthPolicies.scoring_tiers.length > 0 && (
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-2">Scoring Tiers</label>
+                      <div className="space-y-2">
+                        {appleHealthPolicies.scoring_tiers.map((tier, idx) => (
+                          <div key={idx} className="bg-slate-50 rounded-lg p-3 border border-slate-200 flex items-center justify-between">
+                            <div>
+                              <div className="text-sm font-medium text-slate-800">{tier.name}</div>
+                              <div className="text-xs text-slate-500">
+                                HKRS: {tier.hkrs_range.min}-{tier.hkrs_range.max}
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <div className="text-xs font-medium text-slate-700">{tier.risk_class_modifier}</div>
+                              <div className="text-xs text-slate-500">
+                                {tier.premium_adjustment_range.min} to {tier.premium_adjustment_range.max}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Core Principles */}
+                  {appleHealthPolicies.core_principles && appleHealthPolicies.core_principles.length > 0 && (
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-2">Core Principles</label>
+                      <ul className="space-y-1">
+                        {appleHealthPolicies.core_principles.map((principle, idx) => (
+                          <li key={idx} className="text-sm text-slate-600 flex items-start gap-2">
+                            <span className="text-indigo-500 mt-1">•</span>
+                            {principle}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                /* Sub-Score Editor - Policy-like format */
+                <div className="space-y-5">
+                  {appleHealthPolicies.sub_scores && appleHealthPolicies.sub_scores[selectedSubScoreKey] && (
+                    <>
+                      {/* Policy ID and Name */}
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-sm font-medium text-slate-700 mb-1">Policy ID</label>
+                          <input
+                            type="text"
+                            value={selectedSubScoreKey}
+                            disabled
+                            className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-slate-100 text-slate-500 font-mono"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-slate-700 mb-1">Name</label>
+                          <input
+                            type="text"
+                            value={appleHealthPolicies.sub_scores[selectedSubScoreKey].name || getDisplayName(selectedSubScoreKey, {})}
+                            onChange={(e) => updateSubScoreField('name', e.target.value)}
+                            className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
+                            placeholder="e.g., Activity Score"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Category and Weight/Points */}
+                      <div className="grid grid-cols-3 gap-4">
+                        <div>
+                          <label className="block text-sm font-medium text-slate-700 mb-1">Category</label>
+                          <select
+                            value={appleHealthPolicies.sub_scores[selectedSubScoreKey].category || getCategoryFromKey(selectedSubScoreKey)}
+                            onChange={(e) => updateSubScoreField('category', e.target.value)}
+                            className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
+                          >
+                            <option value="activity">Activity</option>
+                            <option value="fitness">Fitness</option>
+                            <option value="vitals">Vitals</option>
+                            <option value="sleep">Sleep</option>
+                            <option value="body_metrics">Body Metrics</option>
+                            <option value="mobility">Mobility</option>
+                            <option value="general">General</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-slate-700 mb-1">Weight (%)</label>
+                          <input
+                            type="number"
+                            step="1"
+                            min="0"
+                            max="100"
+                            value={Math.round((appleHealthPolicies.sub_scores[selectedSubScoreKey].weight || 0) * 100)}
+                            onChange={(e) => updateSubScoreField('weight', parseInt(e.target.value) / 100)}
+                            className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-slate-700 mb-1">Max Points</label>
+                          <input
+                            type="number"
+                            min="0"
+                            max="100"
+                            value={appleHealthPolicies.sub_scores[selectedSubScoreKey].max_points || 0}
+                            onChange={(e) => updateSubScoreField('max_points', parseInt(e.target.value))}
+                            className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Description */}
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Description</label>
+                        <textarea
+                          value={appleHealthPolicies.sub_scores[selectedSubScoreKey].description || ''}
+                          onChange={(e) => updateSubScoreField('description', e.target.value)}
+                          className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm h-20"
+                          placeholder="Describe when this policy applies and how it affects scoring..."
+                        />
+                      </div>
+
+                      {/* Criteria Section */}
+                      <div>
+                        <div className="flex items-center justify-between mb-3">
+                          <label className="block text-sm font-medium text-slate-700">Criteria</label>
+                          <button
+                            type="button"
+                            onClick={addCriterion}
+                            className="inline-flex items-center gap-1 text-sm text-indigo-600 hover:text-indigo-700 font-medium"
+                          >
+                            <Plus className="w-4 h-4" />
+                            Add Criteria
+                          </button>
+                        </div>
+                        
+                        <div className="space-y-3">
+                          {(appleHealthPolicies.sub_scores[selectedSubScoreKey].criteria || []).map((criterion, idx) => (
+                            <div key={idx} className="p-4 bg-slate-50 rounded-lg border border-slate-200 space-y-3">
+                              <div className="flex items-center justify-between">
+                                <span className="text-xs font-medium text-indigo-600">{criterion.id}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => removeCriterion(idx)}
+                                  className="text-xs text-rose-500 hover:text-rose-600 font-medium"
+                                >
+                                  Remove
+                                </button>
+                              </div>
+                              
+                              <div className="grid grid-cols-4 gap-3">
+                                <div className="col-span-3">
+                                  <input
+                                    type="text"
+                                    value={criterion.condition || ''}
+                                    onChange={(e) => updateCriterion(idx, 'condition', e.target.value)}
+                                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
+                                    placeholder="Condition (e.g., Steps > 8000 per day)"
+                                  />
+                                </div>
+                                <div>
+                                  <input
+                                    type="number"
+                                    value={criterion.points || 0}
+                                    onChange={(e) => updateCriterion(idx, 'points', parseInt(e.target.value))}
+                                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
+                                    placeholder="Points"
+                                  />
+                                </div>
+                              </div>
+                              
+                              <div>
+                                <input
+                                  type="text"
+                                  value={criterion.rationale || ''}
+                                  onChange={(e) => updateCriterion(idx, 'rationale', e.target.value)}
+                                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
+                                  placeholder="Rationale (e.g., High activity level indicates low mortality risk)"
+                                />
+                              </div>
+                            </div>
+                          ))}
+                          
+                          {(!appleHealthPolicies.sub_scores[selectedSubScoreKey].criteria || 
+                            appleHealthPolicies.sub_scores[selectedSubScoreKey].criteria?.length === 0) && (
+                            <p className="text-sm text-slate-400 italic py-4 text-center">
+                              No criteria defined. Click &quot;Add Criteria&quot; to add scoring rules.
+                            </p>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Legacy Calculation Rules (read-only) */}
+                      {appleHealthPolicies.sub_scores[selectedSubScoreKey].calculation && (
+                        <div className="pt-4 border-t border-slate-200">
+                          <label className="block text-sm font-medium text-slate-500 mb-2">
+                            Legacy Calculation Rules (read-only)
+                          </label>
+                          <pre className="text-xs text-slate-500 bg-slate-100 p-4 rounded-lg border border-slate-200 overflow-x-auto max-h-48">
+                            {JSON.stringify(appleHealthPolicies.sub_scores[selectedSubScoreKey].calculation, null, 2)}
+                          </pre>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-col items-center justify-center py-16 px-6">
+            <Heart className="w-12 h-12 text-slate-300 mb-4" />
+            <h3 className="text-lg font-medium text-slate-900 mb-2">No Policies Loaded</h3>
+            <p className="text-sm text-slate-500 text-center max-w-md">
+              Click &quot;Reload&quot; to load the Apple Health underwriting policies configuration.
+            </p>
+          </div>
+        )}
+      </div>
+    </div>
+    );
+  };
+
   // Render Analyzer Tab content
   const renderAnalyzerTab = () => (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -2418,6 +2972,17 @@ export default function AdminPage() {
               {currentPersona.includes('claims') ? 'Claims Policies' : 'Underwriting Policies'}
             </button>
             <button
+              onClick={() => setActiveTab('apple-health-policies')}
+              className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors flex items-center gap-1.5 ${
+                activeTab === 'apple-health-policies'
+                  ? 'border-indigo-500 text-indigo-600'
+                  : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
+              }`}
+            >
+              <Heart className="w-4 h-4" />
+              Apple Health Policies
+            </button>
+            <button
               onClick={() => setActiveTab('analyzer')}
               className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
                 activeTab === 'analyzer'
@@ -2435,6 +3000,7 @@ export default function AdminPage() {
         {activeTab === 'documents' && renderDocumentsTab()}
         {activeTab === 'prompts' && renderPromptsTab()}
         {activeTab === 'policies' && renderPoliciesTab()}
+        {activeTab === 'apple-health-policies' && renderAppleHealthPoliciesTab()}
         {activeTab === 'analyzer' && renderAnalyzerTab()}
       </main>
     </div>

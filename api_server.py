@@ -1950,6 +1950,118 @@ async def delete_policy_endpoint(policy_id: str):
 
 
 # =============================================================================
+# Apple Health Underwriting Policy Endpoints
+# =============================================================================
+
+def _get_apple_health_policy_file_path(storage_root: str) -> str:
+    """Get the path to the Apple Health underwriting policies file."""
+    import os
+    return os.path.join(storage_root, "apple-health-underwriting-policies.json")
+
+
+def _load_apple_health_policies(storage_root: str) -> Dict:
+    """Load Apple Health underwriting policies from JSON file."""
+    import json
+    import os
+    
+    policy_file = _get_apple_health_policy_file_path(storage_root)
+    
+    try:
+        if os.path.exists(policy_file):
+            with open(policy_file, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        else:
+            logger.warning("Apple Health policies file not found: %s", policy_file)
+            return {
+                "policy_set_name": "Apple HealthKit Underwriting Rules",
+                "version": "1.0.0",
+                "sub_scores": {},
+                "scoring_tiers": [],
+                "risk_class_adjustments": []
+            }
+    except (json.JSONDecodeError, IOError) as e:
+        logger.error("Failed to load Apple Health policies: %s", str(e))
+        return {}
+
+
+def _save_apple_health_policies(storage_root: str, policies: Dict) -> None:
+    """Save Apple Health underwriting policies to JSON file."""
+    import json
+    
+    policy_file = _get_apple_health_policy_file_path(storage_root)
+    
+    with open(policy_file, 'w', encoding='utf-8') as f:
+        json.dump(policies, f, indent=2)
+
+
+@app.get("/api/apple-health-policies")
+async def get_apple_health_policies():
+    """Get all Apple Health underwriting policies."""
+    try:
+        settings = load_settings()
+        policies = _load_apple_health_policies(settings.app.prompts_root)
+        return {
+            "policies": policies,
+            "type": "apple_health_underwriting"
+        }
+    except Exception as e:
+        logger.error("Failed to get Apple Health policies: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/api/apple-health-policies")
+async def update_apple_health_policies(request: Request):
+    """Update Apple Health underwriting policies."""
+    try:
+        settings = load_settings()
+        data = await request.json()
+        
+        # Validate that we have the expected structure
+        if "policies" in data:
+            policies = data["policies"]
+        else:
+            policies = data
+            
+        _save_apple_health_policies(settings.app.prompts_root, policies)
+        
+        logger.info("Updated Apple Health underwriting policies")
+        
+        return {
+            "success": True,
+            "message": "Apple Health policies updated successfully"
+        }
+    except Exception as e:
+        logger.error("Failed to update Apple Health policies: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/api/apple-health-policies/sub-score/{score_name}")
+async def update_apple_health_sub_score(score_name: str, request: Request):
+    """Update a specific sub-score in Apple Health policies."""
+    try:
+        settings = load_settings()
+        policies = _load_apple_health_policies(settings.app.prompts_root)
+        data = await request.json()
+        
+        if "sub_scores" not in policies:
+            policies["sub_scores"] = {}
+            
+        policies["sub_scores"][score_name] = data
+        
+        _save_apple_health_policies(settings.app.prompts_root, policies)
+        
+        logger.info("Updated Apple Health sub-score: %s", score_name)
+        
+        return {
+            "success": True,
+            "message": f"Sub-score '{score_name}' updated successfully"
+        }
+    except Exception as e:
+        logger.error("Failed to update Apple Health sub-score %s: %s", score_name, e, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
 # Chat API Endpoints
 # =============================================================================
 

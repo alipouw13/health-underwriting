@@ -856,6 +856,95 @@ export async function deletePolicy(policyId: string): Promise<{ success: boolean
 }
 
 // ============================================================================
+// Apple Health Underwriting Policy APIs
+// ============================================================================
+
+export interface AppleHealthPoliciesResponse {
+  policies: AppleHealthPolicies;
+  type: string;
+}
+
+export interface AppleHealthCriterion {
+  id: string;
+  condition: string;
+  points: number;
+  rationale?: string;
+}
+
+export interface AppleHealthSubScore {
+  name?: string;
+  category?: string;
+  weight: number;
+  max_points: number;
+  description?: string;
+  criteria?: AppleHealthCriterion[];
+  calculation?: Record<string, unknown>;
+  normalization?: string;
+  partial_credit?: boolean;
+}
+
+export interface AppleHealthScoringTier {
+  name: string;
+  hkrs_range: { min: number; max: number };
+  risk_class_modifier: string;
+  premium_adjustment_range: { min: string; max: string };
+}
+
+export interface AppleHealthRiskClassAdjustment {
+  trigger: string;
+  adjustment: string;
+  direction: string;
+  cap: string;
+  example: string;
+}
+
+export interface AppleHealthPolicies {
+  policy_set_name: string;
+  version: string;
+  effective_date?: string;
+  description?: string;
+  scope?: Record<string, unknown>;
+  core_principles?: string[];
+  consent_requirements?: Record<string, unknown>;
+  data_categories?: Record<string, unknown>;
+  data_quality_requirements?: Record<string, unknown>;
+  age_adjustment_factor?: Record<string, unknown>;
+  hkrs_formula?: Record<string, unknown>;
+  sub_scores?: Record<string, AppleHealthSubScore>;
+  scoring_tiers?: AppleHealthScoringTier[];
+  risk_class_adjustments?: AppleHealthRiskClassAdjustment[];
+  exclusions?: Record<string, unknown>;
+  governance?: Record<string, unknown>;
+}
+
+/**
+ * Get Apple Health underwriting policies
+ */
+export async function getAppleHealthPolicies(): Promise<AppleHealthPoliciesResponse> {
+  return apiFetch<AppleHealthPoliciesResponse>('/api/apple-health-policies');
+}
+
+/**
+ * Update Apple Health underwriting policies
+ */
+export async function updateAppleHealthPolicies(policies: AppleHealthPolicies): Promise<{ success: boolean; message: string }> {
+  return apiFetch<{ success: boolean; message: string }>('/api/apple-health-policies', {
+    method: 'PUT',
+    body: JSON.stringify({ policies }),
+  });
+}
+
+/**
+ * Update a specific sub-score in Apple Health policies
+ */
+export async function updateAppleHealthSubScore(scoreName: string, subScore: AppleHealthSubScore): Promise<{ success: boolean; message: string }> {
+  return apiFetch<{ success: boolean; message: string }>(`/api/apple-health-policies/sub-score/${encodeURIComponent(scoreName)}`, {
+    method: 'PUT',
+    body: JSON.stringify(subScore),
+  });
+}
+
+// ============================================================================
 // RAG Index Management APIs
 // ============================================================================
 
