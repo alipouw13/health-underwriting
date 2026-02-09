@@ -1,5 +1,3 @@
-> **Note:** This repo was based on [https://github.com/JawadAminMSFT/WorkbenchIQ](https://github.com/JawadAminMSFT/WorkbenchIQ)
-
 <div align="center">
 
 # InsureAI
@@ -16,6 +14,10 @@
 [Business Value](#business-value) | [Architecture](#architecture) | [Features](#features) | [Quick Start](#quick-start) | [Deployment](#deployment)
 
 </div>
+
+---
+
+> **Note:** This repo was based on [https://github.com/JawadAminMSFT/WorkbenchIQ](https://github.com/JawadAminMSFT/WorkbenchIQ)
 
 ---
 
