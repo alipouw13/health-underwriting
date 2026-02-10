@@ -290,7 +290,7 @@ function formatDecisionStatus(status: DecisionStatus): string {
     approved: 'Application Approved',
     approved_with_adjustment: 'Approved with Adjustment',
     referred: 'Referred for Review',
-    declined: 'Application Declined',
+    declined: 'Manual Review Required',
     pending_info: 'Pending Information',
   };
   return labels[status] || status;

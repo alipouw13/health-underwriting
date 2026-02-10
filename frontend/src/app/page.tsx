@@ -23,7 +23,6 @@ import AppleHealthDataPanel from '@/components/AppleHealthDataPanel';
 import RiskClassificationsPanel from '@/components/RiskClassificationsPanel';
 import { ClaimsSummary, MedicalRecordsPanel, EligibilityPanel } from '@/components/claims';
 import LifeHealthClaimsOverview from '@/components/claims/LifeHealthClaimsOverview';
-import PropertyCasualtyClaimsOverview from '@/components/claims/PropertyCasualtyClaimsOverview';
 import AutomotiveClaimsOverview from '@/components/claims/AutomotiveClaimsOverview';
 import { usePersona } from '@/lib/PersonaContext';
 import type { ApplicationMetadata, ApplicationListItem } from '@/lib/types';
@@ -226,9 +225,6 @@ export default function Home() {
         if (currentPersona === 'life_health_claims') {
           return renderLifeHealthClaimsOverview();
         }
-        if (currentPersona === 'property_casualty_claims') {
-          return renderPropertyCasualtyClaimsOverview();
-        }
         if (currentPersona === 'mortgage') {
           return renderMortgageOverview();
         }
@@ -402,23 +398,14 @@ export default function Home() {
       );
     }
     return (
-      <LifeHealthClaimsOverview application={selectedApp} />
-    );
-  };
-
-  const renderPropertyCasualtyClaimsOverview = () => {
-    if (!selectedApp) {
-      return (
-        <div className="flex-1 flex items-center justify-center">
-          <div className="text-center text-slate-500">
-            <p className="text-lg font-medium">No claims application selected</p>
-            <p className="text-sm mt-2">Select a claim from the dropdown to view details</p>
-          </div>
+      <div className="flex-1 flex flex-col overflow-auto">
+        {/* Preview banner */}
+        <div className="mx-4 mt-4 px-4 py-2 bg-amber-50 border border-amber-200 rounded-lg flex items-center gap-2 text-sm text-amber-800">
+          <span className="font-semibold px-1.5 py-0.5 bg-amber-100 rounded text-[10px] uppercase tracking-wide">Preview</span>
+          <span>This workbench is in preview — backend processing is limited and results may be incomplete.</span>
         </div>
-      );
-    }
-    return (
-      <PropertyCasualtyClaimsOverview application={selectedApp} />
+        <LifeHealthClaimsOverview application={selectedApp} />
+      </div>
     );
   };
 

@@ -816,7 +816,7 @@ def convert_agent_output_to_legacy_format(
         decision_map = {
             "approved": "Standard",
             "approved_with_conditions": "Rated",
-            "declined": "Decline",
+            "declined": "Manual Review Required",
             "pending_review": "Defer",
             "referred": "Defer",
         }

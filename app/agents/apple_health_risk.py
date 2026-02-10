@@ -791,7 +791,7 @@ class AppleHealthRiskAgent(BaseUnderwritingAgent[AppleHealthRiskInput, AppleHeal
             HKRSBand.VERY_GOOD: "Very good health signals - may improve risk class by one",
             HKRSBand.STANDARD_PLUS: "Standard Plus health signals",
             HKRSBand.STANDARD: "Standard health signals - no adjustment",
-            HKRSBand.SUBSTANDARD: "Substandard - requires manual review",
+            HKRSBand.SUBSTANDARD: "Substandard / Manual Review Required",
         }
         return descriptions.get(band, "Unknown")
     

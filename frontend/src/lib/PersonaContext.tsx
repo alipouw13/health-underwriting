@@ -26,6 +26,9 @@ export function PersonaProvider({ children }: PersonaProviderProps) {
       const stored = localStorage.getItem(PERSONA_STORAGE_KEY);
       if (stored && stored in PERSONAS) {
         setCurrentPersona(stored as PersonaId);
+      } else if (stored) {
+        // Clear stale/removed persona (e.g. property_casualty_claims)
+        localStorage.removeItem(PERSONA_STORAGE_KEY);
       }
     } catch (e) {
       console.warn('Failed to load persona from localStorage:', e);

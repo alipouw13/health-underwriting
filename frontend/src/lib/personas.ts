@@ -1,12 +1,19 @@
 /**
  * Persona definitions and types for InsureAI.
  * This module defines the available personas and their UI configurations.
+ *
+ * Status tiers:
+ *   - "active"      → fully functional, production-quality
+ *   - "preview"     → UI exists, backend limited — shown with a Preview badge
+ *   - "coming_soon" → placeholder only — disabled in the selector
  */
 
-import { ClipboardList, HeartPulse, Home, Car, Stethoscope } from 'lucide-react';
+import { ClipboardList, Home, Car, Stethoscope } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
-export type PersonaId = 'underwriting' | 'life_health_claims' | 'automotive_claims' | 'property_casualty_claims' | 'mortgage';
+export type PersonaId = 'underwriting' | 'life_health_claims' | 'automotive_claims' | 'mortgage';
+
+export type PersonaStatus = 'active' | 'preview' | 'coming_soon';
 
 export interface Persona {
   id: PersonaId;
@@ -15,6 +22,7 @@ export interface Persona {
   icon: LucideIcon;
   color: string;
   enabled: boolean;
+  status: PersonaStatus;
 }
 
 export interface PersonaConfig extends Persona {
@@ -31,21 +39,11 @@ export const PERSONAS: Record<PersonaId, PersonaConfig> = {
   underwriting: {
     id: 'underwriting',
     name: 'Underwriting',
-    description: 'Life insurance underwriting workbench for processing applications and medical documents',
+    description: 'Life insurance underwriting wor...',
     icon: ClipboardList,
     color: '#6366f1',
     enabled: true,
-    primaryColor: '#6366f1', // Indigo
-    secondaryColor: '#818cf8',
-    accentColor: '#4f46e5',
-  },
-  life_health_claims: {
-    id: 'life_health_claims',
-    name: 'Life & Health Claims',
-    description: 'Health insurance claims processing workbench for medical claims, eligibility verification, and benefits adjudication',
-    icon: Stethoscope,
-    color: '#6366f1',
-    enabled: true,
+    status: 'active',
     primaryColor: '#6366f1', // Indigo
     secondaryColor: '#818cf8',
     accentColor: '#4f46e5',
@@ -53,21 +51,23 @@ export const PERSONAS: Record<PersonaId, PersonaConfig> = {
   automotive_claims: {
     id: 'automotive_claims',
     name: 'Automotive Claims',
-    description: 'Multimodal automotive claims workbench for vehicle damage assessment with image, video, and document processing',
+    description: 'Multimodal automotive claims w...',
     icon: Car,
     color: '#dc2626',
     enabled: true,
+    status: 'active',
     primaryColor: '#dc2626', // Red
     secondaryColor: '#ef4444',
     accentColor: '#b91c1c',
   },
-  property_casualty_claims: {
-    id: 'property_casualty_claims',
-    name: 'Property & Casualty Claims (Legacy)',
-    description: 'Legacy P&C claims - use Automotive Claims instead',
-    icon: Car,
+  life_health_claims: {
+    id: 'life_health_claims',
+    name: 'Life & Health Claims',
+    description: 'Health insurance claims proces...',
+    icon: Stethoscope,
     color: '#6366f1',
-    enabled: false, // Deprecated - use automotive_claims
+    enabled: true,
+    status: 'preview',
     primaryColor: '#6366f1', // Indigo
     secondaryColor: '#818cf8',
     accentColor: '#4f46e5',
@@ -75,15 +75,23 @@ export const PERSONAS: Record<PersonaId, PersonaConfig> = {
   mortgage: {
     id: 'mortgage',
     name: 'Mortgage',
-    description: 'Mortgage underwriting workbench for loan applications and property documents',
+    description: 'Mortgage underwriting workben...',
     icon: Home,
     color: '#6366f1',
     enabled: false,
+    status: 'coming_soon',
     primaryColor: '#6366f1', // Indigo
     secondaryColor: '#818cf8',
     accentColor: '#4f46e5',
   },
 };
+
+/** Ordered groups for the persona selector dropdown */
+export const PERSONA_GROUPS: { label: string; statuses: PersonaStatus[] }[] = [
+  { label: 'Active', statuses: ['active'] },
+  { label: 'Preview', statuses: ['preview'] },
+  { label: 'Coming Soon', statuses: ['coming_soon'] },
+];
 
 /**
  * Get persona configuration by ID

@@ -2550,6 +2550,12 @@ Generate a comprehensive underwriting decision summary based on the HealthKit Ri
 ## Data Gaps:
 {chr(10).join('- ' + g for g in data_gaps) if data_gaps else '- No significant data gaps'}
 
+IMPORTANT LANGUAGE RULES:
+- For REFERRED status or when referral is required: NEVER use the word "decline" or "declined".
+  Instead, say "Manual review required" for the decision status.
+  The application is NOT declined — it is being referred for manual underwriting review.
+- Only use "decline" or "declined" when the status is explicitly DECLINED (not REFERRED).
+
 Generate two messages:
 
 1. **Underwriter Message** (Internal): A comprehensive technical summary that includes:
@@ -2559,6 +2565,7 @@ Generate two messages:
    - Premium calculation details
    - Risk classification rationale
    - Any data quality concerns
+   - For referred cases: State "Decision: Manual review required" (NOT "Decline with referral")
    
    Format this as a structured report with clear sections.
 
@@ -2568,6 +2575,7 @@ Generate two messages:
    - Their risk classification in simple terms
    - The premium amount
    - Any lifestyle factors that positively impacted their assessment
+   - For referred cases: Explain that additional review is needed (do NOT use "decline" language)
    - DO NOT include specific health metrics (HIPAA compliance)
 
 Return JSON:
@@ -2606,16 +2614,23 @@ Return JSON:
 ## Triggered Policy Rules:
 {chr(10).join('- ' + r for r in triggered_rules) if triggered_rules else '- Standard rates apply'}
 
+IMPORTANT LANGUAGE RULES:
+- For REFERRED status or when referral is required: NEVER use the word "decline" or "declined".
+  Instead, say "Manual review required" for the decision status.
+  The application is NOT declined — it is being referred for manual underwriting review.
+- Only use "decline" or "declined" when the status is explicitly DECLINED (not REFERRED).
+
 Generate two messages:
 
 1. **Underwriter Message** (Internal): Include all technical details, risk factors, 
    premium calculations, and policy rule citations. This is for insurance professionals.
+   For referred cases: State "Decision: Manual review required" (NOT "Decline with referral").
 
 2. **Customer Message** (External): A professional, empathetic letter to the applicant.
    - For APPROVED: Congratulate and explain coverage
    - For APPROVED_WITH_ADJUSTMENT: Explain adjustments positively  
    - For DECLINED: Be empathetic, provide general reason (no medical details)
-   - For REFERRED: Explain additional review needed
+   - For REFERRED: Explain that additional review is needed. Do NOT use "decline" language.
    
    DO NOT include specific medical conditions in customer letters (HIPAA compliance).
 

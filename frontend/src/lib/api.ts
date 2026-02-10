@@ -971,7 +971,7 @@ export interface IndexStats {
 
 /**
  * Reindex all policies for RAG search (persona-aware)
- * @param persona - The persona to reindex policies for (underwriting, life_health_claims, automotive_claims, property_casualty_claims)
+ * @param persona - The persona to reindex policies for (underwriting, life_health_claims, automotive_claims)
  * @param force - Whether to force delete existing chunks before reindexing
  */
 export async function reindexAllPolicies(force: boolean = true, persona: string = 'underwriting'): Promise<ReindexResponse> {

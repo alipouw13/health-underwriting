@@ -150,8 +150,8 @@ class CommunicationAgent(BaseUnderwritingAgent[CommunicationInput, Communication
         status_text = {
             DecisionStatus.APPROVED: "Application approved",
             DecisionStatus.APPROVED_WITH_ADJUSTMENT: "Application approved with premium adjustment",
-            DecisionStatus.REFERRED: "Application referred for additional review",
-            DecisionStatus.DECLINED: "Application could not be approved at this time",
+            DecisionStatus.REFERRED: "Manual review required",
+            DecisionStatus.DECLINED: "Application requires further review",
             DecisionStatus.PENDING_INFO: "Additional information required",
         }
         points.append(status_text.get(decision.status, "Decision pending"))
