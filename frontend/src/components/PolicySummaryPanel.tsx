@@ -396,9 +396,9 @@ export default function PolicySummaryPanel({
             <div className="flex items-center gap-2">
               <span className="text-sm text-slate-600">Decision:</span>
               <span className={`font-medium ${
-                premium.base_decision === 'Standard' ? 'text-emerald-600' :
-                premium.base_decision === 'Rated' ? 'text-amber-600' :
-                premium.base_decision === 'Decline' ? 'text-rose-600' :
+                premium.base_decision === 'Standard' || premium.base_decision === 'Low' ? 'text-emerald-600' :
+                premium.base_decision === 'Rated' || premium.base_decision === 'Moderate' ? 'text-amber-600' :
+                premium.base_decision === 'Decline' || premium.base_decision === 'High' ? 'text-rose-600' :
                 'text-slate-700'
               }`}>
                 {premium.base_decision}

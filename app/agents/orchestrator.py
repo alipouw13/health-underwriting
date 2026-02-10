@@ -2620,11 +2620,19 @@ IMPORTANT LANGUAGE RULES:
   The application is NOT declined — it is being referred for manual underwriting review.
 - Only use "decline" or "declined" when the status is explicitly DECLINED (not REFERRED).
 
+IMPORTANT RISK CLASSIFICATION RULES:
+- This is a TRADITIONAL underwriting workflow (NOT Apple Health).
+- Risk Classification MUST use the risk LEVEL provided above: Low, Moderate, High, or Very High.
+- Do NOT use Apple Health risk class bands like "Preferred Plus", "Preferred", "Standard Plus", "Standard", or "Substandard".
+  Those terms are exclusive to the Apple Health HKRS workflow.
+- Example: If risk level is "low", write "Risk Classification: Low" (not "Preferred Plus").
+
 Generate two messages:
 
 1. **Underwriter Message** (Internal): Include all technical details, risk factors, 
    premium calculations, and policy rule citations. This is for insurance professionals.
    For referred cases: State "Decision: Manual review required" (NOT "Decline with referral").
+   Use "Risk Classification: {risk_level_str}" in the report — do NOT invent a different classification.
 
 2. **Customer Message** (External): A professional, empathetic letter to the applicant.
    - For APPROVED: Congratulate and explain coverage

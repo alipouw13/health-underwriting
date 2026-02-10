@@ -807,20 +807,24 @@ def convert_agent_output_to_legacy_format(
     # Map DecisionStatus to premium recommendation
     status_value = final_decision.status.value if hasattr(final_decision.status, 'value') else str(final_decision.status)
     
-    # Use risk_class from Apple Health workflow if available, otherwise map from status
+    # Use risk_class from Apple Health workflow if available, otherwise use risk level
     if hasattr(final_decision, 'risk_class') and final_decision.risk_class:
-        # Apple Health workflow - use the risk class directly
+        # Apple Health workflow - use the risk class directly (Preferred Plus, Standard, etc.)
         base_decision = final_decision.risk_class
     else:
-        # Traditional workflow - map from decision status
-        decision_map = {
-            "approved": "Standard",
-            "approved_with_conditions": "Rated",
+        # Traditional workflow - use the actual risk level as the decision label
+        # For declined/referred, override with appropriate status label
+        status_override_map = {
             "declined": "Manual Review Required",
             "pending_review": "Defer",
             "referred": "Defer",
         }
-        base_decision = decision_map.get(status_value.lower(), "Standard")
+        if status_value.lower() in status_override_map:
+            base_decision = status_override_map[status_value.lower()]
+        else:
+            # Use the mapped risk level (Low, Moderate, High) so it matches
+            # the Risk Classification shown in the underwriting decision summary
+            base_decision = overall_risk
     
     # Build findings from agent execution records
     findings = []
