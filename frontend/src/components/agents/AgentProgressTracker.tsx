@@ -45,12 +45,6 @@ const ADMIN_AGENT_DEFINITIONS = [
     icon: '📊'
   },
   { 
-    id: 'BusinessRulesValidationAgent', 
-    name: 'Business Rules Validation', 
-    description: 'Validating against underwriting rules',
-    icon: '📋'
-  },
-  { 
     id: 'CommunicationAgent', 
     name: 'Decision Communication', 
     description: 'Generating underwriter and customer messages',
