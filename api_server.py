@@ -9,7 +9,7 @@ import asyncio
 import json
 import uuid
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 import requests
 from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
@@ -41,6 +41,8 @@ from app.content_understanding_client import (
 from app.config import UNDERWRITING_FIELD_SCHEMA
 from app.personas import list_personas, get_persona_config, get_field_schema
 from app.utils import setup_logging
+
+import time
 
 # Token tracking (optional - graceful fallback if not available)
 try:
@@ -292,6 +294,7 @@ async def run_extraction_background(app_id: str):
         app_md.processing_status = None
         app_md.processing_error = None
         save_application_metadata(settings.app.storage_root, app_md)
+        invalidate_app_list_cache()
         
         logger.info("Background extraction completed for application %s", app_id)
 
@@ -304,6 +307,7 @@ async def run_extraction_background(app_id: str):
                 app_md.processing_status = "error"
                 app_md.processing_error = str(e)
                 save_application_metadata(settings.app.storage_root, app_md)
+                invalidate_app_list_cache()
         except Exception:
             pass
 
@@ -337,6 +341,7 @@ async def run_analysis_background(app_id: str, sections: Optional[List[str]] = N
         app_md.processing_status = None
         app_md.processing_error = None
         save_application_metadata(settings.app.storage_root, app_md)
+        invalidate_app_list_cache()
         
         logger.info("Background analysis completed for application %s", app_id)
 
@@ -349,6 +354,7 @@ async def run_analysis_background(app_id: str, sections: Optional[List[str]] = N
                 app_md.processing_status = "error"
                 app_md.processing_error = str(e)
                 save_application_metadata(settings.app.storage_root, app_md)
+                invalidate_app_list_cache()
         except Exception:
             pass
 
@@ -549,12 +555,46 @@ async def get_persona(persona_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ============================================================================
+# Application list cache (avoids re-reading every metadata file on each request)
+# ============================================================================
+_app_list_cache: Dict[Optional[str], List[Dict]] = {}
+_app_list_cache_ts: Dict[Optional[str], float] = {}
+_APP_LIST_CACHE_TTL = 10  # seconds
+
+
+def invalidate_app_list_cache(persona: Optional[str] = None) -> None:
+    """Invalidate the application list cache.
+    
+    Call this after creating, deleting, or updating an application.
+    If persona is None, clears entire cache; otherwise clears that persona key.
+    """
+    if persona is None:
+        _app_list_cache.clear()
+        _app_list_cache_ts.clear()
+    else:
+        _app_list_cache.pop(persona, None)
+        _app_list_cache_ts.pop(persona, None)
+        # Also clear the unfiltered cache since it overlaps
+        _app_list_cache.pop(None, None)
+        _app_list_cache_ts.pop(None, None)
+
+
 @app.get("/api/applications", response_model=List[ApplicationListItem])
 async def get_applications(persona: Optional[str] = None):
     """List all applications, optionally filtered by persona."""
     try:
-        settings = load_settings()
-        apps = list_applications(settings.app.storage_root, persona=persona)
+        # Check cache
+        now = time.monotonic()
+        cached_ts = _app_list_cache_ts.get(persona)
+        if cached_ts is not None and (now - cached_ts) < _APP_LIST_CACHE_TTL:
+            apps = _app_list_cache[persona]
+        else:
+            settings = load_settings()
+            apps = list_applications(settings.app.storage_root, persona=persona)
+            _app_list_cache[persona] = apps
+            _app_list_cache_ts[persona] = now
+
         return [
             ApplicationListItem(
                 id=a["id"],
@@ -573,14 +613,29 @@ async def get_applications(persona: Optional[str] = None):
 
 
 @app.get("/api/applications/{app_id}")
-async def get_application(app_id: str):
-    """Get detailed application metadata."""
+async def get_application(app_id: str, exclude: Optional[str] = None):
+    """Get detailed application metadata.
+    
+    Args:
+        app_id: Application identifier.
+        exclude: Comma-separated field names to exclude from the response
+                 (e.g. 'markdown_pages,agent_execution') to reduce payload size.
+    """
     try:
         settings = load_settings()
         app_md = load_application(settings.app.storage_root, app_id)
         if not app_md:
             raise HTTPException(status_code=404, detail="Application not found")
-        return application_to_dict(app_md)
+        result = application_to_dict(app_md)
+        
+        # Strip heavy fields if requested
+        if exclude:
+            for field_name in exclude.split(","):
+                field_name = field_name.strip()
+                if field_name in result:
+                    result[field_name] = None
+        
+        return result
     except HTTPException:
         raise
     except Exception as e:
@@ -681,6 +736,7 @@ async def create_application(
         )
 
         logger.info("Created application %s with %d files for persona %s", app_id, len(files), persona)
+        invalidate_app_list_cache()
         return application_to_dict(app_md)
 
     except HTTPException:

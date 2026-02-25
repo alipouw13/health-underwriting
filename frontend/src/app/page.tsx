@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { Sparkles, FileText, User, Shield, LogOut, Check, Smartphone, LayoutGrid, Award } from 'lucide-react';
@@ -58,11 +58,18 @@ export default function Home() {
   const [isApplicantMode, setIsApplicantMode] = useState(false);
   const [applicantSession, setApplicantSession] = useState<ApplicantSession | null>(null);
 
+  // ---------- In-memory caches to avoid redundant network requests ----------
+  // Cache lists per persona and full app detail by id so persona switches are instant
+  const listCacheRef = useRef<Record<string, ApplicationListItem[]>>({});
+  const appCacheRef = useRef<Record<string, ApplicationMetadata>>({});
+
+  // Extract search params as stable primitives to avoid re-render loops
+  // (useSearchParams() may return a new object reference on each render)
+  const appParam = searchParams.get('app');
+  const applicantParam = searchParams.get('applicant');
+
   // Check for applicant mode on mount
   useEffect(() => {
-    const applicantParam = searchParams.get('applicant');
-    const appParam = searchParams.get('app');
-    
     if (applicantParam === 'true' && appParam) {
       setIsApplicantMode(true);
       // Try to load session from sessionStorage
@@ -75,103 +82,28 @@ export default function Home() {
         }
       }
     }
-  }, [searchParams]);
+  }, [applicantParam, appParam]);
 
-  // Load applications list - reload when persona changes
-  useEffect(() => {
-    async function fetchApplications() {
-      // If in applicant mode with specific app, just load that app
-      const appParam = searchParams.get('app');
-      if (isApplicantMode && appParam) {
-        loadApplication(appParam);
-        return;
-      }
-      
-      try {
-        setLoading(true);
-        setError(null);
-        setSelectedApp(null); // Clear selection when switching personas
-        setApplications([]); // Clear applications immediately to prevent stale data
-        console.log('Loading applications for persona:', currentPersona);
-        const response = await fetch(`/api/applications?persona=${currentPersona}`, {
-          cache: 'no-store',
-          headers: {
-            'Cache-Control': 'no-cache',
-          },
-        });
-        if (response.ok) {
-          const apps = await response.json();
-          console.log('Loaded applications:', apps.length, 'for persona:', currentPersona, apps.map((a: any) => ({ id: a.id, persona: a.persona })));
-          setApplications(apps);
-          // Select the first completed app if available
-          if (apps.length > 0) {
-            const completedApp = apps.find((a: ApplicationListItem) => a.status === 'completed') || apps[0];
-            loadApplication(completedApp.id);
-          } else {
-            setLoading(false);
-          }
-        } else {
-          setError('Failed to load applications');
-          setApplications([]);
-          setLoading(false);
-        }
-      } catch (err) {
-        console.error('Failed to load applications:', err);
-        setError('Failed to connect to API server');
-        setApplications([]);
-        setLoading(false);
-      }
-    }
-    
-    fetchApplications();
-  }, [currentPersona, isApplicantMode, searchParams]);
-
-  async function loadApplications() {
-    // This function is now just for manual refresh
-    try {
-      setLoading(true);
-      setError(null);
-      setSelectedApp(null);
-      setApplications([]);
-      console.log('Loading applications for persona:', currentPersona);
-      const response = await fetch(`/api/applications?persona=${currentPersona}`, {
-        cache: 'no-store',
-        headers: {
-          'Cache-Control': 'no-cache',
-        },
-      });
-      if (response.ok) {
-        const apps = await response.json();
-        console.log('Loaded applications:', apps.length, 'for persona:', currentPersona, apps.map((a: any) => ({ id: a.id, persona: a.persona })));
-        setApplications(apps);
-        if (apps.length > 0) {
-          const completedApp = apps.find((a: ApplicationListItem) => a.status === 'completed') || apps[0];
-          loadApplication(completedApp.id);
-        } else {
-          setLoading(false);
-        }
-      } else {
-        setError('Failed to load applications');
-        setApplications([]);
-        setLoading(false);
-      }
-    } catch (err) {
-      console.error('Failed to load applications:', err);
-      setError('Failed to connect to API server');
-      setApplications([]);
+  // Shared function: load a single application (with optional field exclusion)
+  const loadApplication = useCallback(async (appId: string, skipHeavyFields = false) => {
+    // Return from cache if available
+    const cached = appCacheRef.current[appId];
+    if (cached) {
+      setSelectedApp(cached);
+      setActiveView('overview');
       setLoading(false);
+      return;
     }
-  }
 
-  async function loadApplication(appId: string) {
     try {
       setLoading(true);
       setError(null);
-      const response = await fetch(`/api/applications/${appId}`);
+      const excludeParam = skipHeavyFields ? '?exclude=markdown_pages' : '';
+      const response = await fetch(`/api/applications/${appId}${excludeParam}`);
       if (response.ok) {
-        const app = await response.json();
+        const app: ApplicationMetadata = await response.json();
+        appCacheRef.current[appId] = app;
         setSelectedApp(app);
-        // Reset to overview when selecting a new application
         setActiveView('overview');
       } else {
         setError('Failed to load application details');
@@ -184,7 +116,67 @@ export default function Home() {
     } finally {
       setLoading(false);
     }
-  }
+  }, []);
+
+  // Shared function: fetch application list for a persona
+  const fetchApplications = useCallback(async (forceRefresh = false) => {
+    // If in applicant mode with specific app, just load that app
+    if (isApplicantMode && appParam) {
+      loadApplication(appParam);
+      return;
+    }
+
+    try {
+      setError(null);
+
+      // Use cached list unless forced refresh
+      let apps: ApplicationListItem[];
+      const cacheKey = currentPersona;
+      if (!forceRefresh && listCacheRef.current[cacheKey]) {
+        apps = listCacheRef.current[cacheKey];
+      } else {
+        // Only reset UI state when actually making a network request
+        setLoading(true);
+        setSelectedApp(null);
+        setApplications([]);
+
+        console.log('Loading applications for persona:', currentPersona);
+        const response = await fetch(`/api/applications?persona=${currentPersona}`, {
+          cache: 'no-store',
+          headers: { 'Cache-Control': 'no-cache' },
+        });
+        if (!response.ok) {
+          setError('Failed to load applications');
+          setApplications([]);
+          setLoading(false);
+          return;
+        }
+        apps = await response.json();
+        listCacheRef.current[cacheKey] = apps;
+      }
+
+      console.log('Loaded applications:', apps.length, 'for persona:', currentPersona);
+      setApplications(apps);
+
+      if (apps.length > 0) {
+        const completedApp = apps.find((a: ApplicationListItem) => a.status === 'completed') || apps[0];
+        // Use skipHeavyFields=true on initial load to render faster
+        loadApplication(completedApp.id, true);
+      } else {
+        setLoading(false);
+      }
+    } catch (err) {
+      console.error('Failed to load applications:', err);
+      setError('Failed to connect to API server');
+      setApplications([]);
+      setLoading(false);
+    }
+  }, [currentPersona, isApplicantMode, appParam, loadApplication]);
+
+  // Load applications list - reload when persona changes
+  useEffect(() => {
+    fetchApplications();
+  }, [fetchApplications]);
 
   const renderMainContent = () => {
     if (!selectedApp) return null;
@@ -631,7 +623,7 @@ export default function Home() {
                 Make sure the API server is running on port 8000
               </p>
               <button
-                onClick={() => loadApplications()}
+                onClick={() => fetchApplications(true)}
                 className="mt-4 px-4 py-2 bg-indigo-500 text-white rounded-lg hover:bg-indigo-600 transition-colors"
               >
                 Retry

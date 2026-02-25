@@ -1,0 +1,13 @@
+{
+  "RoleName": "Fabric Mirroring Reader",
+  "Type": "CustomRole",
+  "AssignableScopes": ["/"],
+  "Permissions": [
+    {
+      "DataActions": [
+        "Microsoft.DocumentDB/databaseAccounts/readMetadata",
+        "Microsoft.DocumentDB/databaseAccounts/readAnalytics"
+      ]
+    }
+  ]
+}

@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
 import './globals.css';
 import { PersonaProvider } from '@/lib/PersonaContext';
+import { FeatureFlagsProvider } from '@/lib/FeatureFlagsContext';
 
 const inter = Inter({ subsets: ['latin'] });
 
@@ -21,9 +22,11 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={inter.className}>
-        <PersonaProvider>
-          {children}
-        </PersonaProvider>
+        <FeatureFlagsProvider>
+          <PersonaProvider>
+            {children}
+          </PersonaProvider>
+        </FeatureFlagsProvider>
       </body>
     </html>
   );

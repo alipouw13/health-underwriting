@@ -11,7 +11,14 @@ export async function GET(
   const appId = params.id;
   
   try {
-    const response = await fetch(`${API_BASE_URL}/api/applications/${appId}`, {
+    // Forward query parameters (e.g. ?exclude=markdown_pages,agent_execution)
+    const searchParams = request.nextUrl.searchParams;
+    const queryString = searchParams.toString();
+    const url = queryString
+      ? `${API_BASE_URL}/api/applications/${appId}?${queryString}`
+      : `${API_BASE_URL}/api/applications/${appId}`;
+
+    const response = await fetch(url, {
       headers: {
         'Content-Type': 'application/json',
       },

@@ -12,7 +12,7 @@ import {
 } from 'lucide-react';
 import type { ApplicationListItem, ApplicationMetadata } from '@/lib/types';
 import clsx from 'clsx';
-import { useFeatureFlags } from '@/lib/useFeatureFlags';
+import { useFeatureFlagsContext } from '@/lib/FeatureFlagsContext';
 
 interface SidebarProps {
   applications: ApplicationListItem[];
@@ -31,7 +31,7 @@ export default function Sidebar({
   onSelectApp,
   onChangeView,
 }: SidebarProps) {
-  const { flags } = useFeatureFlags();
+  const { flags } = useFeatureFlagsContext();
   // Check if there are documents available
   const hasDocuments = selectedApp?.files && selectedApp.files.length > 0;
   const hasSourcePages = selectedApp?.markdown_pages && selectedApp.markdown_pages.length > 0;

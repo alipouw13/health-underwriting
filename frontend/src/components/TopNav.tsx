@@ -17,7 +17,7 @@ import clsx from 'clsx';
 import { useState } from 'react';
 import PersonaSelector from './PersonaSelector';
 import { usePersona } from '@/lib/PersonaContext';
-import { useFeatureFlags } from '@/lib/useFeatureFlags';
+import { useFeatureFlagsContext } from '@/lib/FeatureFlagsContext';
 
 interface TopNavProps {
   applications: ApplicationListItem[];
@@ -40,7 +40,7 @@ export default function TopNav({
 }: TopNavProps) {
   const [appDropdownOpen, setAppDropdownOpen] = useState(false);
   const { personaConfig } = usePersona();
-  const { flags } = useFeatureFlags();
+  const { flags } = useFeatureFlagsContext();
   
   const hasDocuments = selectedApp?.files && selectedApp.files.length > 0;
   const hasSourcePages = selectedApp?.markdown_pages && selectedApp.markdown_pages.length > 0;
