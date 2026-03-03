@@ -151,15 +151,28 @@ export default function AdminPage() {
     return ['application/pdf'];
   };
 
-  // Load applications
-  const loadApplications = useCallback(async () => {
+  // Load applications (with auto-retry while backend cache warms up)
+  const loadApplications = useCallback(async (retryCount = 0) => {
     try {
       const apps = await listApplications(currentPersona);
       setApplications(apps);
       setError(null);
+      // If we got an empty list and haven't retried much, the backend cache
+      // may still be warming up (~60-90s after server restart). Auto-retry.
+      if (apps.length === 0 && retryCount < 20) {
+        const delay = Math.min(3000 + retryCount * 1000, 8000);
+        setTimeout(() => loadApplications(retryCount + 1), delay);
+        return; // keep loading=true while retrying
+      }
+      setLoading(false);
     } catch (err) {
+      // Network errors during warmup are expected – retry silently
+      if (retryCount < 20) {
+        const delay = Math.min(3000 + retryCount * 1000, 8000);
+        setTimeout(() => loadApplications(retryCount + 1), delay);
+        return; // keep loading=true while retrying
+      }
       setError(err instanceof Error ? err.message : 'Failed to load applications');
-    } finally {
       setLoading(false);
     }
   }, [currentPersona]);
@@ -279,14 +292,18 @@ export default function AdminPage() {
     setAnalyzerLoading(true);
     setAnalyzerError(null);
     try {
-      const [status, schema, list] = await Promise.all([
+      // Load status and schema first (fast), don't block on listAnalyzers (slow – checks every persona)
+      const [status, schema] = await Promise.all([
         getAnalyzerStatus(currentPersona),
         getAnalyzerSchema(currentPersona),
-        listAnalyzers(),
       ]);
       setAnalyzerStatus(status);
       setAnalyzerSchema(schema);
-      setAnalyzers(list.analyzers);
+
+      // Load full analyzer list in background – don't block the UI
+      listAnalyzers()
+        .then((list) => setAnalyzers(list.analyzers))
+        .catch((err) => console.warn('Failed to load analyzer list:', err));
     } catch (err) {
       setAnalyzerError(err instanceof Error ? err.message : 'Failed to load analyzer data');
     } finally {
@@ -1030,7 +1047,7 @@ export default function AdminPage() {
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-xl font-semibold text-slate-900">Applications</h2>
             <button
-              onClick={loadApplications}
+              onClick={() => loadApplications()}
               className="text-sm text-indigo-600 hover:text-indigo-700"
               disabled={loading}
             >

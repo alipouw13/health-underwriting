@@ -3,12 +3,57 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
+import time as _time
 from dataclasses import dataclass, asdict, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# In-memory cache for the application list (avoids slow blob storage reads)
+# ---------------------------------------------------------------------------
+_app_list_cache: Optional[List[Dict[str, Any]]] = None
+_app_list_cache_ts: float = 0.0
+_app_list_cache_lock = threading.Lock()
+_app_list_cache_loading = False
+_app_list_cache_ready = threading.Event()  # signaled when first load completes
+APP_LIST_CACHE_TTL_SECONDS = 60  # refresh every 60 seconds
+
+
+def _invalidate_app_list_cache() -> None:
+    """Call after any create / update / delete to force a cache refresh."""
+    global _app_list_cache, _app_list_cache_ts
+    with _app_list_cache_lock:
+        _app_list_cache = None
+        _app_list_cache_ts = 0.0
+
+
+def _update_app_in_cache(metadata) -> None:
+    """Lightweight in-place update of a single app in the list cache.
+    
+    This avoids a full 48-app reload from blob storage every time
+    metadata is saved during processing.  Falls back to full invalidation
+    if the app isn't in the cache yet (e.g. brand-new upload).
+    """
+    global _app_list_cache, _app_list_cache_ts
+    with _app_list_cache_lock:
+        if _app_list_cache is None:
+            return  # no cache to update; next list call will do a full load
+        
+        data = _metadata_to_dict(metadata)
+        new_summary = _build_app_summary(data)
+        
+        # Try to find and update existing entry
+        for i, entry in enumerate(_app_list_cache):
+            if entry.get("id") == metadata.id:
+                _app_list_cache[i] = new_summary
+                return
+        
+        # New app not in cache yet – prepend it
+        _app_list_cache.insert(0, new_summary)
 
 
 @dataclass
@@ -64,6 +109,11 @@ class ApplicationMetadata:
     risk_analysis: Optional[Dict[str, Any]] = None  # Policy-based risk assessment
     # Agent execution results (for multi-agent workflow)
     agent_execution: Optional[Dict[str, Any]] = None  # Full orchestrator output for Agent Insights
+    # Large document processing fields
+    processing_mode: Optional[str] = None  # 'standard' or 'large_document'
+    condensed_context: Optional[str] = None  # Condensed summary for large docs
+    document_stats: Optional[Dict[str, Any]] = None  # Size/page stats for display
+    batch_summaries: Optional[List[Dict[str, Any]]] = None  # Batch-level summaries for UI
     # Background processing status tracking
     processing_status: Optional[str] = None  # idle, extracting, analyzing, error
     processing_error: Optional[str] = None  # Error message if processing failed
@@ -238,6 +288,10 @@ def save_application_metadata(root: str, metadata: ApplicationMetadata) -> None:
         meta_path = app_dir / "metadata.json"
         with open(meta_path, "w", encoding="utf-8") as f:
             json.dump(serializable, f, indent=2)
+    
+    # Update the specific entry in the list cache without triggering
+    # a full 48-app reload from blob storage
+    _update_app_in_cache(metadata)
 
 
 def load_application(root: str, app_id: str) -> Optional[ApplicationMetadata]:
@@ -260,91 +314,121 @@ def load_application(root: str, app_id: str) -> Optional[ApplicationMetadata]:
         return _dict_to_metadata(data)
 
 
-def list_applications(root: str, persona: Optional[str] = None) -> List[Dict[str, Any]]:
-    """Return lightweight list of available applications, optionally filtered by persona."""
+def _build_app_summary(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Extract only the lightweight fields needed for the list view."""
     from app.personas import normalize_persona_id
+    app_persona = data.get("persona") or "underwriting"
+    app_persona = normalize_persona_id(app_persona)
+    return {
+        "id": data.get("id"),
+        "created_at": data.get("created_at"),
+        "external_reference": data.get("external_reference"),
+        "status": data.get("status", "unknown"),
+        "persona": app_persona,
+        "processing_status": data.get("processing_status"),
+        "summary_title": data.get("llm_outputs", {})
+        .get("application_summary", {})
+        .get("customer_profile", {})
+        .get("summary", "")
+        or "",
+    }
+
+
+def _load_all_app_summaries() -> List[Dict[str, Any]]:
+    """Load all application summaries, using cache when available.
     
-    provider = _get_provider()
+    If cache is stale and another thread is already refreshing,
+    returns the stale cache.  If no cache exists yet (first load),
+    blocks until the loading thread finishes instead of returning empty.
+    """
+    global _app_list_cache, _app_list_cache_ts, _app_list_cache_loading
+
+    now = _time.time()
+    i_am_loader = False
+    with _app_list_cache_lock:
+        if _app_list_cache is not None and (now - _app_list_cache_ts) < APP_LIST_CACHE_TTL_SECONDS:
+            return _app_list_cache
+        
+        if _app_list_cache_loading:
+            if _app_list_cache is not None:
+                # Return stale cache while refresh is in progress
+                return _app_list_cache
+            # No cache yet and another thread is loading — wait below
+        else:
+            _app_list_cache_loading = True
+            _app_list_cache_ready.clear()
+            i_am_loader = True
     
+    if not i_am_loader:
+        # Another thread is doing the first load — wait briefly (up to 2s)
+        # If it's not ready by then, return empty; caller can retry.
+        _app_list_cache_ready.wait(timeout=2)
+        with _app_list_cache_lock:
+            if _app_list_cache is not None:
+                return _app_list_cache
+        return []
+
+    try:
+        # Cache miss – rebuild (this can take 30-90s for blob storage)
+        provider = _get_provider()
+        all_apps: List[Dict[str, Any]] = []
+
+        if provider:
+            logger.info("Refreshing application list cache from storage provider...")
+            all_metadata = provider.list_applications_with_metadata()
+            for data in all_metadata:
+                all_apps.append(_build_app_summary(data))
+        else:
+            # Legacy local storage
+            import os as _os
+            base = Path(_os.environ.get("UW_APP_STORAGE_ROOT", "data")) / "applications"
+            if base.exists():
+                for app_dir in sorted(base.iterdir()):
+                    if not app_dir.is_dir():
+                        continue
+                    meta_path = app_dir / "metadata.json"
+                    if not meta_path.exists():
+                        continue
+                    with open(meta_path, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                    all_apps.append(_build_app_summary(data))
+
+        # Sort by created_at descending
+        all_apps.sort(key=lambda a: a.get("created_at") or "", reverse=True)
+
+        with _app_list_cache_lock:
+            _app_list_cache = all_apps
+            _app_list_cache_ts = _time.time()
+            _app_list_cache_loading = False
+        _app_list_cache_ready.set()  # wake any waiting threads
+
+        logger.info("Application list cache refreshed: %d apps", len(all_apps))
+        return all_apps
+    except Exception:
+        with _app_list_cache_lock:
+            _app_list_cache_loading = False
+        _app_list_cache_ready.set()  # wake waiters even on failure
+        raise
+
+
+def list_applications(root: str, persona: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Return lightweight list of available applications, optionally filtered by persona.
+    
+    Uses an in-memory cache to avoid slow blob storage reads on every request.
+    Cache is invalidated on create/update/delete operations.
+    """
+    from app.personas import normalize_persona_id
+
     # Normalize the filter persona (handles legacy 'claims' -> 'life_health_claims')
     if persona is not None:
         persona = normalize_persona_id(persona)
 
-    apps: List[Dict[str, Any]] = []
-    
-    if provider:
-        # Use storage provider
-        app_ids = provider.list_applications()
-        for app_id in app_ids:
-            data = provider.load_metadata(app_id)
-            if data is None:
-                continue
-            
-            # Filter by persona if specified
-            app_persona = data.get("persona") or "underwriting"
-            app_persona = normalize_persona_id(app_persona)
-            
-            if persona is not None and app_persona != persona:
-                continue
-            
-            apps.append(
-                {
-                    "id": data.get("id"),
-                    "created_at": data.get("created_at"),
-                    "external_reference": data.get("external_reference"),
-                    "status": data.get("status", "unknown"),
-                    "persona": app_persona,
-                    "processing_status": data.get("processing_status"),
-                    "summary_title": data.get("llm_outputs", {})
-                    .get("application_summary", {})
-                    .get("customer_profile", {})
-                    .get("summary", "")
-                    or "",
-                }
-            )
-    else:
-        # Legacy local storage
-        base = get_storage_root(root) / "applications"
-        if not base.exists():
-            return []
+    all_apps = _load_all_app_summaries()
 
-        for app_dir in sorted(base.iterdir()):
-            if not app_dir.is_dir():
-                continue
-            meta_path = app_dir / "metadata.json"
-            if not meta_path.exists():
-                continue
-            with open(meta_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            
-            # Filter by persona if specified
-            # Legacy apps without persona are treated as "underwriting"
-            app_persona = data.get("persona") or "underwriting"
-            # Normalize app persona as well (handles legacy 'claims' in stored data)
-            app_persona = normalize_persona_id(app_persona)
-            
-            if persona is not None and app_persona != persona:
-                continue
-                
-            apps.append(
-                {
-                    "id": data.get("id"),
-                    "created_at": data.get("created_at"),
-                    "external_reference": data.get("external_reference"),
-                    "status": data.get("status", "unknown"),
-                    "persona": app_persona,
-                    "processing_status": data.get("processing_status"),
-                    "summary_title": data.get("llm_outputs", {})
-                    .get("application_summary", {})
-                    .get("customer_profile", {})
-                    .get("summary", "")
-                    or "",
-                }
-            )
+    if persona is None:
+        return all_apps
     
-    # Sort by created_at descending
-    apps.sort(key=lambda a: a.get("created_at") or "", reverse=True)
-    return apps
+    return [a for a in all_apps if a.get("persona") == persona]
 
 
 def new_metadata(

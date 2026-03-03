@@ -21,7 +21,30 @@ except ImportError:
 logger = setup_logging()
 
 # Polling timeout in seconds for long-running operations
-POLL_TIMEOUT_SECONDS = 180
+# Base timeout for documents; reference implementation uses 900 s (15 min)
+POLL_TIMEOUT_SECONDS = 900
+
+# Large-document constants
+_LARGE_FILE_THRESHOLD_BYTES = 2 * 1024 * 1024   # 2 MB  (~50 pages)
+_TIMEOUT_PER_MB = 120                            # extra seconds per MB of file data
+_MAX_POLL_TIMEOUT = 3600                          # hard cap: 60 minutes
+_MAX_UPLOAD_TIMEOUT = 600                         # 10 min upload cap
+
+
+def _adaptive_timeouts(file_size_bytes: int) -> tuple:
+    """Return (poll_timeout, upload_timeout) scaled to *file_size_bytes*.
+
+    Small files keep the default 180 s / 120 s.  For large files the poll
+    timeout grows proportionally (~2 min extra per MB) so that a 365-page
+    PDF (~20 MB) gets ~40 extra minutes of polling headroom.
+    """
+    if file_size_bytes <= _LARGE_FILE_THRESHOLD_BYTES:
+        return POLL_TIMEOUT_SECONDS, 120
+
+    size_mb = file_size_bytes / (1024 * 1024)
+    poll = min(int(POLL_TIMEOUT_SECONDS + size_mb * _TIMEOUT_PER_MB), _MAX_POLL_TIMEOUT)
+    upload = min(int(120 + size_mb * 10), _MAX_UPLOAD_TIMEOUT)
+    return poll, upload
 
 # Cache for Azure AD credential to avoid recreating on every request
 _credential_cache: Optional[Any] = None
@@ -252,6 +275,13 @@ def analyze_document(
     if file_bytes is None:
         file_bytes = Path(file_path).read_bytes()
 
+    poll_timeout, upload_timeout = _adaptive_timeouts(len(file_bytes))
+    if poll_timeout != POLL_TIMEOUT_SECONDS:
+        logger.info(
+            "Large file detected (%.1f MB) – using adaptive timeouts: poll=%ds, upload=%ds",
+            len(file_bytes) / (1024 * 1024), poll_timeout, upload_timeout,
+        )
+
     last_err: Exception | None = None
     for attempt in range(1, max_retries + 1):
         try:
@@ -261,19 +291,19 @@ def analyze_document(
                 params=params,
                 headers=headers,
                 data=file_bytes,
-                timeout=120,
+                timeout=upload_timeout,
             )
             _raise_for_status_with_detail(resp)
             
             # Poll for the result
-            result = poll_result(resp, headers)
+            result = poll_result(resp, headers, timeout_seconds=poll_timeout)
             return result
 
         except Exception as exc:  # noqa: BLE001
             last_err = exc
             logger.warning(
-                "Content Understanding analyze_document attempt %s failed: %s",
-                attempt,
+                "Content Understanding analyze_document attempt %s/%s failed: %s",
+                attempt, max_retries,
                 str(exc),
             )
             if attempt < max_retries:
@@ -975,6 +1005,13 @@ def analyze_document_with_confidence(
     if file_bytes is None:
         file_bytes = Path(file_path).read_bytes()
 
+    poll_timeout, upload_timeout = _adaptive_timeouts(len(file_bytes))
+    if poll_timeout != POLL_TIMEOUT_SECONDS:
+        logger.info(
+            "Large file detected (%.1f MB) – using adaptive timeouts: poll=%ds, upload=%ds",
+            len(file_bytes) / (1024 * 1024), poll_timeout, upload_timeout,
+        )
+
     last_err: Exception | None = None
     for attempt in range(1, max_retries + 1):
         try:
@@ -983,18 +1020,18 @@ def analyze_document_with_confidence(
                 params=params,
                 headers=headers,
                 data=file_bytes,
-                timeout=120,
+                timeout=upload_timeout,
             )
             _raise_for_status_with_detail(resp)
             
-            result = poll_result(resp, headers)
+            result = poll_result(resp, headers, timeout_seconds=poll_timeout)
             return result
 
         except Exception as exc:
             last_err = exc
             logger.warning(
-                "Content Understanding analyze_document_with_confidence attempt %s failed: %s",
-                attempt,
+                "Content Understanding analyze_document_with_confidence attempt %s/%s failed: %s",
+                attempt, max_retries,
                 str(exc),
             )
             if attempt < max_retries:

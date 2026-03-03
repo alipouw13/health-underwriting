@@ -199,17 +199,54 @@ class AzureBlobStorageProvider:
         return json.loads(content.decode("utf-8"))
     
     def list_applications(self) -> List[str]:
-        """List all application IDs."""
+        """List all application IDs.
+        
+        Optimized: uses walk_blobs with delimiter '/' to get only the
+        virtual directory names under 'applications/', avoiding scanning
+        every individual blob in those directories.
+        """
         prefix = "applications/"
-        app_ids = set()
+        app_ids = []
         
-        for blob in self._container_client.list_blobs(name_starts_with=prefix):
-            # Extract app_id from path like "applications/{app_id}/..."
-            parts = blob.name.split("/")
-            if len(parts) >= 2:
-                app_ids.add(parts[1])
+        # walk_blobs with delimiter returns virtual directory prefixes
+        # instead of iterating through every blob
+        for item in self._container_client.walk_blobs(name_starts_with=prefix, delimiter="/"):
+            # item.name will be like "applications/{app_id}/"
+            name = item.name.rstrip("/")
+            parts = name.split("/")
+            if len(parts) >= 2 and parts[1]:
+                app_ids.append(parts[1])
         
-        return list(app_ids)
+        return app_ids
+    
+    def list_applications_with_metadata(self) -> List[Dict[str, Any]]:
+        """List all applications with their metadata in a single pass.
+        
+        Optimized: downloads metadata blobs concurrently to avoid N+1 
+        round-trips to Azure Blob Storage.
+        """
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        
+        app_ids = self.list_applications()
+        
+        results: List[Dict[str, Any]] = []
+        
+        def _load(app_id: str) -> Optional[Dict[str, Any]]:
+            try:
+                return self.load_metadata(app_id)
+            except Exception:
+                logger.warning("Failed to load metadata for %s", app_id)
+                return None
+        
+        # Fetch metadata concurrently (max 10 threads)
+        with ThreadPoolExecutor(max_workers=min(10, len(app_ids) or 1)) as pool:
+            futures = {pool.submit(_load, aid): aid for aid in app_ids}
+            for future in as_completed(futures):
+                data = future.result()
+                if data is not None:
+                    results.append(data)
+        
+        return results
     
     def delete_application(self, app_id: str) -> bool:
         """Delete an application and all its blobs."""

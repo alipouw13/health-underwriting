@@ -97,6 +97,19 @@ class StorageProvider(Protocol):
         """List all application IDs."""
         ...
     
+    def list_applications_with_metadata(self) -> List[Dict[str, Any]]:
+        """List all applications with their metadata.
+        
+        Default implementation calls list_applications() + load_metadata() 
+        for each. Subclasses can override for optimized batch loading.
+        """
+        results = []
+        for app_id in self.list_applications():
+            data = self.load_metadata(app_id)
+            if data is not None:
+                results.append(data)
+        return results
+
     def delete_application(self, app_id: str) -> bool:
         """Delete an application and all its files."""
         ...

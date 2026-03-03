@@ -113,6 +113,16 @@ class AppSettings:
 
 
 @dataclass
+class ProcessingSettings:
+    """Settings for document processing modes."""
+    large_doc_threshold_kb: int = 1500  # Documents >= this size use large doc mode (1.5MB)
+    chunk_size_chars: int = 50000       # Characters per chunk for summarization
+    max_sample_pages: int = 15          # Max pages to sample for large docs
+    condensed_context_max_chars: int = 40000  # Target size for condensed context
+    auto_detect_mode: bool = True       # Automatically detect processing mode
+
+
+@dataclass
 class AgentSettings:
     """Settings for multi-agent execution."""
     enabled: bool = False  # AGENT_EXECUTION_ENABLED toggle
@@ -132,6 +142,7 @@ class Settings:
     content_understanding: ContentUnderstandingSettings
     openai: OpenAISettings
     app: AppSettings
+    processing: ProcessingSettings
     database: DatabaseSettings
     rag: RAGSettings
     automotive_claims: AutomotiveClaimsSettings
@@ -197,7 +208,15 @@ def load_settings() -> Settings:
     auto_claims = AutomotiveClaimsSettings.from_env()
     agent = AgentSettings.from_env()
 
-    return Settings(content_understanding=cu, openai=oa, app=app, database=db, rag=rag, automotive_claims=auto_claims, agent=agent)
+    processing = ProcessingSettings(
+        large_doc_threshold_kb=int(os.getenv("LARGE_DOC_THRESHOLD_KB", "1500")),
+        chunk_size_chars=int(os.getenv("CHUNK_SIZE_CHARS", "50000")),
+        max_sample_pages=int(os.getenv("MAX_SAMPLE_PAGES", "15")),
+        condensed_context_max_chars=int(os.getenv("CONDENSED_CONTEXT_MAX_CHARS", "40000")),
+        auto_detect_mode=os.getenv("AUTO_DETECT_PROCESSING_MODE", "true").lower() == "true",
+    )
+
+    return Settings(content_understanding=cu, openai=oa, app=app, processing=processing, database=db, rag=rag, automotive_claims=auto_claims, agent=agent)
 
 
 def validate_settings(settings: Settings) -> List[str]:

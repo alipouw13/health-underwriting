@@ -28,6 +28,11 @@ from .storage import (
 from .personas import get_persona_config
 from .utils import setup_logging
 from .underwriting_policies import format_all_policies_for_prompt
+from .large_document_processor import (
+    detect_processing_mode,
+    build_condensed_context,
+    get_document_stats,
+)
 
 # Token tracking (optional - graceful fallback if not available)
 try:
@@ -509,6 +514,68 @@ def run_underwriting_prompts(
     if not app_md.document_markdown:
         raise ValueError("ApplicationMarkdown is empty; run Content Understanding first.")
 
+    # ── Large Document Detection & Condensed Context ──────────────────────
+    # Auto-detect processing mode based on document size
+    if settings.processing.auto_detect_mode:
+        processing_mode = detect_processing_mode(
+            app_md.document_markdown,
+            settings.processing.large_doc_threshold_kb,
+        )
+    else:
+        processing_mode = "standard"
+
+    app_md.processing_mode = processing_mode
+
+    # For large documents, build condensed context via progressive summarization
+    if processing_mode == "large_document":
+        logger.info(
+            "Large document detected for application %s – building condensed context",
+            app_md.id,
+        )
+        doc_stats = get_document_stats(app_md.document_markdown)
+        app_md.document_stats = doc_stats
+        logger.info("Document stats: %s", doc_stats)
+
+        # Retrieve the first CU raw result for field extraction context
+        cu_result_for_context = None
+        if app_md.cu_raw_result_path:
+            try:
+                from .storage import _get_provider
+                provider = _get_provider()
+                if provider:
+                    raw_data = provider.load_file_by_path(app_md.cu_raw_result_path)
+                    if raw_data:
+                        cu_result_for_context = json.loads(raw_data)
+                else:
+                    import pathlib
+                    p = pathlib.Path(app_md.cu_raw_result_path)
+                    if p.exists():
+                        cu_result_for_context = json.loads(p.read_text())
+            except Exception as e:
+                logger.warning("Could not load CU raw result for condensed context: %s", e)
+
+        condensed_context, batch_summaries = build_condensed_context(
+            settings,
+            app_md.document_markdown,
+            cu_result=cu_result_for_context,
+        )
+        app_md.condensed_context = condensed_context
+        app_md.batch_summaries = batch_summaries
+
+        # Use condensed context instead of the raw (huge) markdown for prompts
+        effective_document_markdown = condensed_context
+        logger.info(
+            "Using condensed context (%d chars) instead of raw markdown (%d chars)",
+            len(condensed_context),
+            len(app_md.document_markdown),
+        )
+        # Persist progress so far
+        save_application_metadata(settings.app.storage_root, app_md)
+    else:
+        effective_document_markdown = app_md.document_markdown
+        logger.info("Standard processing mode – using raw document markdown")
+
+    # ── Load persona-specific prompts ─────────────────────────────────────
     # Load persona-specific prompts from prompts_root
     persona = app_md.persona or "underwriting"
     prompts = prompts_override or load_prompts(settings.app.prompts_root, persona)
@@ -611,7 +678,7 @@ def run_underwriting_prompts(
             settings=settings,
             section=section,
             subsections=subs,
-            document_markdown=app_md.document_markdown,
+            document_markdown=effective_document_markdown,
             subsections_to_run=subsections_to_run,
             max_workers=max_workers_per_section,
             additional_context=policy_context,

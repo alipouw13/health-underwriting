@@ -119,6 +119,17 @@ async def startup_event():
         logger.error("Failed to initialize storage provider: %s", e)
         raise
 
+    # Pre-warm the application list cache in a background thread
+    # so the first API request doesn't block for 60-90 seconds
+    import threading
+    def _prewarm_cache():
+        try:
+            from app.storage import _load_all_app_summaries
+            _load_all_app_summaries()
+        except Exception as e:
+            logger.warning("Cache pre-warm failed (non-fatal): %s", e)
+    threading.Thread(target=_prewarm_cache, daemon=True).start()
+
     # Initialize database pool if using PostgreSQL
     settings = load_settings()
     if settings.database.backend == "postgresql":
@@ -259,6 +270,12 @@ def application_to_dict(app_md: ApplicationMetadata) -> dict:
 # Background Processing Helpers
 # ============================================================================
 
+# Track which apps have active background tasks in THIS process.
+# Apps in this set have a running asyncio task.  After a server restart
+# the set is empty, so any app that still claims "extracting"/"analyzing"
+# in blob storage is stale and must be auto-reset.
+_active_processing_apps: set[str] = set()
+
 def _handle_task_exception(task: asyncio.Task):
     """Callback to log exceptions from background tasks."""
     try:
@@ -271,6 +288,11 @@ def _handle_task_exception(task: asyncio.Task):
 
 async def run_extraction_background(app_id: str):
     """Run content extraction in background and update status."""
+    # Track this app as actively processing (only when called directly,
+    # not from run_extract_and_analyze_background which does its own tracking)
+    is_standalone = app_id not in _active_processing_apps
+    if is_standalone:
+        _active_processing_apps.add(app_id)
     try:
         logger.info("Starting background extraction for application %s", app_id)
         settings = load_settings()
@@ -294,7 +316,6 @@ async def run_extraction_background(app_id: str):
         app_md.processing_status = None
         app_md.processing_error = None
         save_application_metadata(settings.app.storage_root, app_md)
-        invalidate_app_list_cache()
         
         logger.info("Background extraction completed for application %s", app_id)
 
@@ -307,9 +328,11 @@ async def run_extraction_background(app_id: str):
                 app_md.processing_status = "error"
                 app_md.processing_error = str(e)
                 save_application_metadata(settings.app.storage_root, app_md)
-                invalidate_app_list_cache()
         except Exception:
             pass
+    finally:
+        if is_standalone:
+            _active_processing_apps.discard(app_id)
 
 
 async def run_analysis_background(app_id: str, sections: Optional[List[str]] = None):
@@ -341,7 +364,7 @@ async def run_analysis_background(app_id: str, sections: Optional[List[str]] = N
         app_md.processing_status = None
         app_md.processing_error = None
         save_application_metadata(settings.app.storage_root, app_md)
-        invalidate_app_list_cache()
+        # Note: save_application_metadata does an in-place cache update
         
         logger.info("Background analysis completed for application %s", app_id)
 
@@ -354,23 +377,26 @@ async def run_analysis_background(app_id: str, sections: Optional[List[str]] = N
                 app_md.processing_status = "error"
                 app_md.processing_error = str(e)
                 save_application_metadata(settings.app.storage_root, app_md)
-                invalidate_app_list_cache()
         except Exception:
             pass
 
 
 async def run_extract_and_analyze_background(app_id: str):
     """Run both extraction and analysis in background."""
+    _active_processing_apps.add(app_id)
     logger.info("Starting full background processing for application %s", app_id)
-    await run_extraction_background(app_id)
-    
-    # Check if extraction succeeded before continuing
-    settings = load_settings()
-    app_md = load_application(settings.app.storage_root, app_id)
-    if app_md and app_md.processing_status != "error" and app_md.document_markdown:
-        await run_analysis_background(app_id)
-    else:
-        logger.warning("Skipping analysis for %s - extraction failed or no content", app_id)
+    try:
+        await run_extraction_background(app_id)
+        
+        # Check if extraction succeeded before continuing
+        settings = load_settings()
+        app_md = load_application(settings.app.storage_root, app_id)
+        if app_md and app_md.processing_status != "error" and app_md.document_markdown:
+            await run_analysis_background(app_id)
+        else:
+            logger.warning("Skipping analysis for %s - extraction failed or no content", app_id)
+    finally:
+        _active_processing_apps.discard(app_id)
 
 
 # =============================================================================
@@ -560,7 +586,7 @@ async def get_persona(persona_id: str):
 # ============================================================================
 _app_list_cache: Dict[Optional[str], List[Dict]] = {}
 _app_list_cache_ts: Dict[Optional[str], float] = {}
-_APP_LIST_CACHE_TTL = 10  # seconds
+_APP_LIST_CACHE_TTL = 30  # seconds
 
 
 def invalidate_app_list_cache(persona: Optional[str] = None) -> None:
@@ -582,18 +608,44 @@ def invalidate_app_list_cache(persona: Optional[str] = None) -> None:
 
 @app.get("/api/applications", response_model=List[ApplicationListItem])
 async def get_applications(persona: Optional[str] = None):
-    """List all applications, optionally filtered by persona."""
+    """List all applications, optionally filtered by persona.
+    
+    Returns immediately with cached data when available. If cache is cold
+    (server just started), returns an empty list with X-Cache-Status: warming
+    header so the frontend can retry after a short delay rather than blocking
+    for 60-90s.
+    """
+    from starlette.responses import JSONResponse
     try:
-        # Check cache
+        # Check api_server-level cache first
         now = time.monotonic()
         cached_ts = _app_list_cache_ts.get(persona)
         if cached_ts is not None and (now - cached_ts) < _APP_LIST_CACHE_TTL:
             apps = _app_list_cache[persona]
         else:
+            # Try non-blocking load: use a very short timeout on to_thread.
+            # If the prewarm thread is still loading blobs this will resolve
+            # quickly (either cached data or empty), rather than hanging 80+ s.
             settings = load_settings()
-            apps = list_applications(settings.app.storage_root, persona=persona)
-            _app_list_cache[persona] = apps
-            _app_list_cache_ts[persona] = now
+            try:
+                apps = await asyncio.wait_for(
+                    asyncio.to_thread(
+                        list_applications, settings.app.storage_root, persona
+                    ),
+                    timeout=15,  # max 15s wait – return empty+retry if cache still warming
+                )
+            except asyncio.TimeoutError:
+                # Cache still loading – return empty with retry hint
+                logger.info("App list cache still warming – returning empty set with retry header")
+                return JSONResponse(
+                    content=[],
+                    headers={"X-Cache-Status": "warming"},
+                )
+            # Only cache non-empty results to avoid poisoning the cache
+            # during the initial blob storage load race
+            if apps:
+                _app_list_cache[persona] = apps
+                _app_list_cache_ts[persona] = now
 
         return [
             ApplicationListItem(
@@ -623,7 +675,11 @@ async def get_application(app_id: str, exclude: Optional[str] = None):
     """
     try:
         settings = load_settings()
-        app_md = load_application(settings.app.storage_root, app_id)
+        # Run in thread pool to avoid blocking the async event loop
+        # (blob storage reads are synchronous I/O)
+        app_md = await asyncio.to_thread(
+            load_application, settings.app.storage_root, app_id
+        )
         if not app_md:
             raise HTTPException(status_code=404, detail="Application not found")
         result = application_to_dict(app_md)
@@ -889,10 +945,20 @@ async def process_application(app_id: str):
 
         # Check if already processing
         if app_md.processing_status in ("extracting", "analyzing"):
-            raise HTTPException(
-                status_code=409,
-                detail=f"Application is already being processed: {app_md.processing_status}"
+            # Check if the task is actually running in THIS process
+            if app_id in _active_processing_apps:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Application is already being processed: {app_md.processing_status}"
+                )
+            # No active task — previous server instance died; auto-reset
+            logger.warning(
+                "Application %s has stale processing_status='%s' with no active task. Auto-resetting.",
+                app_id, app_md.processing_status,
             )
+            app_md.processing_status = None
+            app_md.processing_error = None
+            save_application_metadata(settings.app.storage_root, app_md)
         
         # Start background task for full processing
         task = asyncio.create_task(run_extract_and_analyze_background(app_id))
@@ -1136,21 +1202,52 @@ async def run_application_risk_analysis_stream(app_id: str, use_demo: bool = Fal
                     orchestrator_output = event
             
             if orchestrator_output:
-                # Convert to legacy format and save
+                # Convert to legacy format
                 risk_result = convert_agent_output_to_legacy_format(orchestrator_output, app_md)
                 
-                app_md.agent_execution = {
+                result_data = {
+                    "application_id": app_id,
+                    "risk_analysis": risk_result,
                     "workflow_id": orchestrator_output.workflow_id,
-                    "orchestrator_output": orchestrator_output.model_dump(mode='json'),
+                    "total_execution_time_ms": orchestrator_output.total_execution_time_ms,
+                    "execution_records": [r.model_dump(mode='json') for r in orchestrator_output.execution_records],
                 }
-                app_md.risk_analysis = risk_result
-                save_application_metadata(settings.app.storage_root, app_md)
                 
                 # ============================================================
-                # COSMOS DB PERSISTENCE (append-only, non-blocking)
-                # Persist agent run to Cosmos DB when AGENT_EXECUTION_ENABLED=true
-                # This happens AFTER orchestration completes and NEVER blocks execution
+                # PERSISTENCE — save to Blob Storage BEFORE emitting result.
+                # The frontend refetches the app immediately after receiving
+                # the result event; if the save hasn't finished yet, the
+                # refetch returns stale data (no risk_analysis). This race
+                # condition is especially visible for large documents where
+                # the metadata blob upload takes longer.
                 # ============================================================
+                try:
+                    app_md.agent_execution = {
+                        "workflow_id": orchestrator_output.workflow_id,
+                        "orchestrator_output": orchestrator_output.model_dump(mode='json'),
+                    }
+                    app_md.risk_analysis = risk_result
+                    # Use asyncio.to_thread so the sync blob upload doesn't block the event loop
+                    await asyncio.to_thread(save_application_metadata, settings.app.storage_root, app_md)
+                    logger.info("Metadata saved to blob storage for %s", app_id)
+                except Exception as save_err:
+                    logger.warning("Failed to save metadata (non-fatal): %s", save_err)
+                
+                # ============================================================
+                # EMIT RESULT — after blob save so the frontend refetch is
+                # guaranteed to see the updated risk_analysis data.
+                # ============================================================
+                yield f"event: result\ndata: {json.dumps(result_data, default=str)}\n\n"
+                await asyncio.sleep(0)  # flush to client
+                
+                logger.info(
+                    "Streaming agent execution completed for %s - workflow_id=%s, time=%.2fms",
+                    app_id,
+                    orchestrator_output.workflow_id,
+                    orchestrator_output.total_execution_time_ms
+                )
+                
+                # COSMOS DB PERSISTENCE (append-only, non-blocking)
                 if settings.agent.enabled:
                     logger.info("Attempting to persist agent run to Cosmos DB...")
                     try:
@@ -1247,23 +1344,6 @@ async def run_application_risk_analysis_stream(app_id: str, use_demo: bool = Fal
                             "Failed to persist agent run to Cosmos DB (non-fatal): %s",
                             cosmos_err
                         )
-                
-                # Emit result event with full output
-                result_data = {
-                    "application_id": app_id,
-                    "risk_analysis": risk_result,
-                    "workflow_id": orchestrator_output.workflow_id,
-                    "total_execution_time_ms": orchestrator_output.total_execution_time_ms,
-                    "execution_records": [r.model_dump(mode='json') for r in orchestrator_output.execution_records],
-                }
-                yield f"event: result\ndata: {json.dumps(result_data, default=str)}\n\n"
-                
-                logger.info(
-                    "Streaming agent execution completed for %s - workflow_id=%s, time=%.2fms",
-                    app_id,
-                    orchestrator_output.workflow_id,
-                    orchestrator_output.total_execution_time_ms
-                )
             
         except Exception as e:
             logger.error("Streaming agent execution failed for %s: %s", app_id, e, exc_info=True)

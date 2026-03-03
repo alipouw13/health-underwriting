@@ -65,7 +65,7 @@ export default function Home() {
 
   // Extract search params as stable primitives to avoid re-render loops
   // (useSearchParams() may return a new object reference on each render)
-  const appParam = searchParams.get('app');
+  const appParam = searchParams.get('app') || searchParams.get('id');
   const applicantParam = searchParams.get('applicant');
 
   // Check for applicant mode on mount
@@ -85,23 +85,38 @@ export default function Home() {
   }, [applicantParam, appParam]);
 
   // Shared function: load a single application (with optional field exclusion)
-  const loadApplication = useCallback(async (appId: string, skipHeavyFields = false) => {
-    // Return from cache if available
-    const cached = appCacheRef.current[appId];
-    if (cached) {
-      setSelectedApp(cached);
-      setActiveView('overview');
-      setLoading(false);
-      return;
+  const loadApplication = useCallback(async (appId: string, skipHeavyFields = false, bypassCache = false) => {
+    // Return from cache if available (unless bypassed, e.g. after risk analysis)
+    if (!bypassCache) {
+      const cached = appCacheRef.current[appId];
+      if (cached) {
+        setSelectedApp(cached);
+        setActiveView('overview');
+        setLoading(false);
+        return;
+      }
     }
 
     try {
       setLoading(true);
       setError(null);
-      const excludeParam = skipHeavyFields ? '?exclude=markdown_pages' : '';
+      // When bypassing cache (e.g. after risk analysis), always exclude heavy
+      // fields to avoid re-downloading 365 pages of markdown.  We merge the
+      // lightweight response into the existing cached version so page data
+      // that was loaded earlier is preserved.
+      const shouldExclude = skipHeavyFields || bypassCache;
+      const excludeParam = shouldExclude ? '?exclude=markdown_pages' : '';
       const response = await fetch(`/api/applications/${appId}${excludeParam}`);
       if (response.ok) {
         const app: ApplicationMetadata = await response.json();
+        // Merge: if we excluded heavy fields and have a cached version,
+        // carry forward the heavy fields from the cache.
+        const existing = appCacheRef.current[appId];
+        if (shouldExclude && existing) {
+          if (!app.markdown_pages && existing.markdown_pages) {
+            app.markdown_pages = existing.markdown_pages;
+          }
+        }
         appCacheRef.current[appId] = app;
         setSelectedApp(app);
         setActiveView('overview');
@@ -120,10 +135,15 @@ export default function Home() {
 
   // Shared function: fetch application list for a persona
   const fetchApplications = useCallback(async (forceRefresh = false) => {
-    // If in applicant mode with specific app, just load that app
-    if (isApplicantMode && appParam) {
-      loadApplication(appParam);
-      return;
+    // If a specific app is requested via URL (?id= or ?app=), load it directly
+    if (appParam) {
+      if (isApplicantMode) {
+        loadApplication(appParam);
+        return;
+      }
+      // Underwriter deep-link: load the requested app immediately,
+      // then fetch the sidebar list in the background
+      loadApplication(appParam, true);
     }
 
     try {
@@ -136,8 +156,11 @@ export default function Home() {
         apps = listCacheRef.current[cacheKey];
       } else {
         // Only reset UI state when actually making a network request
-        setLoading(true);
-        setSelectedApp(null);
+        // and no specific app was requested via URL
+        if (!appParam) {
+          setLoading(true);
+          setSelectedApp(null);
+        }
         setApplications([]);
 
         console.log('Loading applications for persona:', currentPersona);
@@ -159,11 +182,16 @@ export default function Home() {
       setApplications(apps);
 
       if (apps.length > 0) {
-        const completedApp = apps.find((a: ApplicationListItem) => a.status === 'completed') || apps[0];
-        // Use skipHeavyFields=true on initial load to render faster
-        loadApplication(completedApp.id, true);
+        // Don't override if a specific app was already loaded via URL param
+        if (!appParam) {
+          const completedApp = apps.find((a: ApplicationListItem) => a.status === 'completed') || apps[0];
+          // Use skipHeavyFields=true on initial load to render faster
+          loadApplication(completedApp.id, true);
+        }
       } else {
-        setLoading(false);
+        if (!appParam) {
+          setLoading(false);
+        }
       }
     } catch (err) {
       console.error('Failed to load applications:', err);
@@ -241,8 +269,8 @@ export default function Home() {
           method: 'POST',
         });
         if (response.ok) {
-          // Reload application to get updated analysis
-          loadApplication(selectedApp.id);
+          // Reload application to get updated analysis (bypass cache)
+          loadApplication(selectedApp.id, false, true);
         }
       } catch (err) {
         console.error('Failed to re-run risk analysis:', err);
@@ -283,7 +311,7 @@ export default function Home() {
               <PolicySummaryPanel
                 application={selectedApp}
                 onViewFullReport={() => setIsPolicyReportOpen(true)}
-                onRiskAnalysisComplete={() => loadApplication(selectedApp.id)}
+                onRiskAnalysisComplete={() => loadApplication(selectedApp.id, false, true)}
               />
             </div>
 
@@ -332,7 +360,7 @@ export default function Home() {
               <PolicySummaryPanel
                 application={selectedApp}
                 onViewFullReport={() => setIsPolicyReportOpen(true)}
-                onRiskAnalysisComplete={() => loadApplication(selectedApp.id)}
+                onRiskAnalysisComplete={() => loadApplication(selectedApp.id, false, true)}
               />
             </div>
 

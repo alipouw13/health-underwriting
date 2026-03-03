@@ -1552,8 +1552,9 @@ class OrchestratorAgent:
         tools_used = []
         
         if self._use_foundry:
-            # Use Azure AI Foundry agent with function tools
-            prompt = f"""Analyze the provided health metrics and patient profile to identify risk indicators.
+            # Use Azure AI Foundry agent with function tools, fall back to local on failure
+            try:
+                prompt = f"""Analyze the provided health metrics and patient profile to identify risk indicators.
 
 IMPORTANT BIOMETRIC DATA (use these exact values for tool calls):
 - age: {age}
@@ -1579,28 +1580,32 @@ Return your response as JSON with this structure:
   "risk_indicators": [...],
   "summary": "..."
 }}"""
-            
-            result = await self._invoke_foundry_agent(
-                "HealthDataAnalysisAgent",
-                prompt,
-                input_data,
-                execution_context=context,
-                step_number=1,
-            )
-            
-            # Get actual tools executed from Foundry
-            tools_used = result.get("tools_used", [])
-            if not tools_used:
-                tools_used = ["analyze_health_metrics", "extract_risk_indicators"]  # Expected tools
-            
-            # Parse Foundry response into expected output format
-            parsed = result.get("parsed") or {}
-            output = HealthDataAnalysisOutput(
-                agent_id="HealthDataAnalysisAgent",
-                risk_indicators=self._parse_risk_indicators(parsed.get("risk_indicators", [])),
-                summary=parsed.get("summary", result.get("response", "Analysis completed via Foundry")),
-                execution_time_ms=result.get("execution_time_ms", 0),
-            )
+                
+                result = await self._invoke_foundry_agent(
+                    "HealthDataAnalysisAgent",
+                    prompt,
+                    input_data,
+                    execution_context=context,
+                    step_number=1,
+                )
+                
+                # Get actual tools executed from Foundry
+                tools_used = result.get("tools_used", [])
+                if not tools_used:
+                    tools_used = ["analyze_health_metrics", "extract_risk_indicators"]  # Expected tools
+                
+                # Parse Foundry response into expected output format
+                parsed = result.get("parsed") or {}
+                output = HealthDataAnalysisOutput(
+                    agent_id="HealthDataAnalysisAgent",
+                    risk_indicators=self._parse_risk_indicators(parsed.get("risk_indicators", [])),
+                    summary=parsed.get("summary", result.get("response", "Analysis completed via Foundry")),
+                    execution_time_ms=result.get("execution_time_ms", 0),
+                )
+            except Exception as e:
+                self.logger.warning("Foundry agent for HealthDataAnalysisAgent failed: %s. Falling back to local agent.", e)
+                output = await self._health_data_agent.run(input_data)
+                tools_used = ["local-health-analyzer"]
         else:
             # Use local deterministic agent
             output = await self._health_data_agent.run(input_data)
@@ -1691,50 +1696,54 @@ Return JSON:
   "freshness_assessment": "Data is current within 30 days",
   "recommendations": ["recommendation1"]
 }"""
-            result = await self._invoke_foundry_agent(
-                "DataQualityConfidenceAgent", prompt, input_data,
-                execution_context=context, step_number=2
-            )
-            parsed = result.get("parsed") or {}
-            
-            from data.mock.schemas import DataQualityLevel, QualityFlag
-            quality_level_str = parsed.get("data_quality_level", "good").lower()
-            quality_level = DataQualityLevel(quality_level_str) if quality_level_str in ["poor", "fair", "good", "excellent"] else DataQualityLevel.GOOD
-            
-            # Parse quality flags - handle both string and dict formats
-            quality_flags = []
-            raw_flags = parsed.get("quality_flags", [])
-            for i, flag in enumerate(raw_flags):
-                if isinstance(flag, dict):
-                    quality_flags.append(QualityFlag(
-                        flag_id=flag.get("flag_id", f"QF-{i+1:03d}"),
-                        flag_type=flag.get("flag_type", "incomplete"),
-                        severity=flag.get("severity", "info"),
-                        affected_metric=flag.get("affected_metric", "general"),
-                        description=flag.get("description", str(flag)),
-                        confidence_impact=float(flag.get("confidence_impact", -0.05)),
-                    ))
-                elif isinstance(flag, str):
-                    # Convert string flag to QualityFlag object
-                    quality_flags.append(QualityFlag(
-                        flag_id=f"QF-{i+1:03d}",
-                        flag_type="info",
-                        severity="info",
-                        affected_metric="general",
-                        description=flag,
-                        confidence_impact=-0.05,
-                    ))
-            
-            output = DataQualityConfidenceOutput(
-                agent_id="DataQualityConfidenceAgent",
-                confidence_score=float(parsed.get("confidence_score", 0.8)),
-                data_quality_level=quality_level,
-                quality_flags=quality_flags,
-                freshness_assessment=parsed.get("freshness_assessment", "Data analyzed via Azure AI Foundry"),
-                coverage_metrics=parsed.get("coverage_metrics", {}),
-                recommendations=parsed.get("recommendations", []),
-                execution_time_ms=result.get("execution_time_ms", 0),
-            )
+            try:
+                result = await self._invoke_foundry_agent(
+                    "DataQualityConfidenceAgent", prompt, input_data,
+                    execution_context=context, step_number=2
+                )
+                parsed = result.get("parsed") or {}
+                
+                from data.mock.schemas import DataQualityLevel, QualityFlag
+                quality_level_str = parsed.get("data_quality_level", "good").lower()
+                quality_level = DataQualityLevel(quality_level_str) if quality_level_str in ["poor", "fair", "good", "excellent"] else DataQualityLevel.GOOD
+                
+                # Parse quality flags - handle both string and dict formats
+                quality_flags = []
+                raw_flags = parsed.get("quality_flags", [])
+                for i, flag in enumerate(raw_flags):
+                    if isinstance(flag, dict):
+                        quality_flags.append(QualityFlag(
+                            flag_id=flag.get("flag_id", f"QF-{i+1:03d}"),
+                            flag_type=flag.get("flag_type", "incomplete"),
+                            severity=flag.get("severity", "info"),
+                            affected_metric=flag.get("affected_metric", "general"),
+                            description=flag.get("description", str(flag)),
+                            confidence_impact=float(flag.get("confidence_impact", -0.05)),
+                        ))
+                    elif isinstance(flag, str):
+                        # Convert string flag to QualityFlag object
+                        quality_flags.append(QualityFlag(
+                            flag_id=f"QF-{i+1:03d}",
+                            flag_type="info",
+                            severity="info",
+                            affected_metric="general",
+                            description=flag,
+                            confidence_impact=-0.05,
+                        ))
+                
+                output = DataQualityConfidenceOutput(
+                    agent_id="DataQualityConfidenceAgent",
+                    confidence_score=float(parsed.get("confidence_score", 0.8)),
+                    data_quality_level=quality_level,
+                    quality_flags=quality_flags,
+                    freshness_assessment=parsed.get("freshness_assessment", "Data analyzed via Azure AI Foundry"),
+                    coverage_metrics=parsed.get("coverage_metrics", {}),
+                    recommendations=parsed.get("recommendations", []),
+                    execution_time_ms=result.get("execution_time_ms", 0),
+                )
+            except Exception as e:
+                self.logger.warning("Foundry agent for DataQualityConfidenceAgent failed: %s. Falling back to local agent.", e)
+                output = await self._data_quality_agent.run(input_data)
         else:
             output = await self._data_quality_agent.run(input_data)
         
@@ -2494,6 +2503,8 @@ Provide JSON:
         # Build key risk factors from health analysis
         key_risk_factors = [ri.explanation for ri in hda_output.risk_indicators[:3]]
         
+        output = None  # Will be set by Foundry or local agent
+        
         if self._use_foundry:
             # Build prompt for Foundry agent - different for Apple Health vs Traditional
             if is_apple_health:
@@ -2651,40 +2662,45 @@ Return JSON:
   "key_points": ["point1", "point2", "point3"]
 }}"""
 
-            result = await self._invoke_foundry_agent(
-                "CommunicationAgent", prompt, 
-                {
-                    "status": status.value,
-                    "risk_level": risk_level_str,
-                    "premium_adjustment_pct": premium_adjustment_pct,
-                    "adjusted_premium": adjusted_premium,
-                    "rationale": rationale,
-                    "key_risk_factors": key_risk_factors,
-                    "patient_profile": patient_profile.model_dump(mode='json'),
-                },
-                execution_context=context,
-                step_number=6,
-            )
-            parsed = result.get("parsed") or {}
-            
-            output = CommunicationOutput(
-                agent_id="CommunicationAgent",
-                underwriter_message=parsed.get("underwriter_message", 
-                    f"Underwriting decision: {status.value}. Risk level: {risk_level_str}. "
-                    f"Premium adjustment: {premium_adjustment_pct}%. {rationale}"),
-                customer_message=parsed.get("customer_message", 
-                    f"Dear Applicant, your application has been {status.value.lower().replace('_', ' ')}. "
-                    f"Please contact us if you have any questions."),
-                tone_assessment=parsed.get("tone_assessment", "professional"),
-                readability_score=float(parsed.get("readability_score", 85.0)),
-                key_points=parsed.get("key_points", [
-                    f"Decision: {status.value}",
-                    f"Risk Level: {risk_level_str}",
-                    f"Premium: ${adjusted_premium:.2f}/year"
-                ]),
-                execution_time_ms=result.get("execution_time_ms", 0),
-            )
-        else:
+            try:
+                result = await self._invoke_foundry_agent(
+                    "CommunicationAgent", prompt, 
+                    {
+                        "status": status.value,
+                        "risk_level": risk_level_str,
+                        "premium_adjustment_pct": premium_adjustment_pct,
+                        "adjusted_premium": adjusted_premium,
+                        "rationale": rationale,
+                        "key_risk_factors": key_risk_factors,
+                        "patient_profile": patient_profile.model_dump(mode='json'),
+                    },
+                    execution_context=context,
+                    step_number=6,
+                )
+                parsed = result.get("parsed") or {}
+                
+                output = CommunicationOutput(
+                    agent_id="CommunicationAgent",
+                    underwriter_message=parsed.get("underwriter_message", 
+                        f"Underwriting decision: {status.value}. Risk level: {risk_level_str}. "
+                        f"Premium adjustment: {premium_adjustment_pct}%. {rationale}"),
+                    customer_message=parsed.get("customer_message", 
+                        f"Dear Applicant, your application has been {status.value.lower().replace('_', ' ')}. "
+                        f"Please contact us if you have any questions."),
+                    tone_assessment=parsed.get("tone_assessment", "professional"),
+                    readability_score=float(parsed.get("readability_score", 85.0)),
+                    key_points=parsed.get("key_points", [
+                        f"Decision: {status.value}",
+                        f"Risk Level: {risk_level_str}",
+                        f"Premium: ${adjusted_premium:.2f}/year"
+                    ]),
+                    execution_time_ms=result.get("execution_time_ms", 0),
+                )
+            except Exception as e:
+                self.logger.warning("Foundry agent for CommunicationAgent failed: %s. Falling back to local agent.", e)
+                output = None  # Will trigger local fallback below
+        
+        if output is None:
             # Build proper DecisionSummary with UnderwritingDecision for local agent
             from data.mock.schemas import PremiumAdjustment, DataQualityLevel
             
@@ -2737,7 +2753,9 @@ Return JSON:
             "approved": approved,
         }
         # Get actual tools used from Foundry or use defaults
-        tools_used = result.get("tools_used", ["generate_decision_summary"]) if self._use_foundry else ["local-message-generator"]
+        tools_used = ["local-message-generator"]
+        if self._use_foundry and 'result' in locals() and isinstance(result, dict):
+            tools_used = result.get("tools_used", ["generate_decision_summary"])
         context.store_output(
             "CommunicationAgent", 
             output, 
