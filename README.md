@@ -55,8 +55,8 @@ InsureAI delivers measurable business impact across insurance operations:
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                           USER INTERFACES                                   │
 │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐              │
-│  │   Underwriter   │  │  Claims Adjuster│  │   End User      │              │
-│  │   Workbench     │  │   Workbench     │  │   (Apple Health)│              │
+│  │   Underwriter   │  │  Claims         │  │   End User      │              │
+│  │   Workbench     │  │  Workbench      │  │   (Apple Health)│              │
 │  └────────┬────────┘  └────────┬────────┘  └────────┬────────┘              │
 │           │                    │                    │                       │
 │           └────────────────────┼────────────────────┘                       │
@@ -194,9 +194,16 @@ InsureAI delivers measurable business impact across insurance operations:
 
 ### Claims Processing
 
+#### Life & Health Claims
 - **Medical Claims Review** - ICD-10 code extraction and coverage verification
 - **Document Triage** - Intelligent routing based on claim type and complexity
 - **Provider Information** - Automatic extraction of healthcare provider details
+
+#### Automotive Claims (Multimodal)
+- **Multimodal Processing** - Document, image, and video analysis via Azure AI Content Understanding
+- **Damage Assessment** - AI-powered vehicle damage detection from photos and video
+- **Policy Engine** - Automated damage severity, liability, and fraud evaluation
+- **Claims RAG Search** - Semantic search over automotive claims policies via pgvector
 
 ### Technical Capabilities
 
@@ -205,6 +212,11 @@ InsureAI delivers measurable business impact across insurance operations:
 - **Azure Blob Storage** - Scalable document storage with Azure AD authentication
 - **PostgreSQL + pgvector** - Optional RAG for semantic policy search
 - **Feature Flags** - Granular control over agent execution and evaluations
+- **Large Document Processing** - Progressive summarization for documents >1.5 MB
+- **Apple Health Risk Score (HKRS)** - Composite risk scoring from HealthKit data with sub-scores and age adjustment
+- **Data Quality & Confidence** - Agent-level assessment of health data reliability and completeness
+- **Bias & Fairness Detection** - Automated screening of underwriting decisions for discriminatory patterns
+- **Application Insights Tracing** - OpenTelemetry integration for Foundry portal traces
 
 ---
 
@@ -360,8 +372,8 @@ InsureAI delivers measurable business impact across insurance operations:
 
 ```bash
 # Clone the repository
-git clone https://github.com/microsoft/insureai.git
-cd insureai
+git clone https://github.com/alipouw13/health-underwriting.git
+cd health-underwriting
 
 # Install Python dependencies
 uv sync
@@ -473,7 +485,8 @@ cd frontend && npm run dev
 3. **Create AI Foundry Project**
    - Navigate to [Azure AI Foundry Portal](https://ai.azure.com)
    - Create new project linked to your Azure OpenAI resource
-   - Deploy agents using the agent definitions in `specs/`
+   - Deploy agents (HealthDataAnalysis, PolicyRisk, Communication) with the tool definitions in `app/agents/agent_tools.py`
+   - Design documents for each feature are in `specs/` for reference
 
 4. **Configure Cosmos DB**
    ```bash

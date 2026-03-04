@@ -16,6 +16,12 @@ Contains the life and health underwriting policy manual with risk assessment gui
 - Provide policy citations in risk assessments
 - Determine premium loading recommendations
 
+### apple-health-underwriting-policies.json
+Contains underwriting policies specific to Apple Health data integration, used by the end-user self-service flow for HealthKit-based risk assessment.
+
+### large-document-prompts.json
+Contains prompts for progressive summarization of large documents (>1.5 MB). Used by the large document processor for chunked extraction and condensed context generation.
+
 ### policies.json
 Contains claims/health plan policy definitions used for benefits and coverage information.
 

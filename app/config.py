@@ -2,20 +2,10 @@
 
 from __future__ import annotations
 from dataclasses import dataclass
-# --- Database & RAG Settings ---
 from typing import Any
 
+from app.database.settings import DatabaseSettings
 
-@dataclass
-class DatabaseSettings:
-    backend: str = "json"  # 'json' or 'postgresql'
-    host: Optional[str] = None
-    port: Optional[int] = None
-    database: Optional[str] = None
-    user: Optional[str] = None
-    password: Optional[str] = None
-    ssl_mode: Optional[str] = None
-    schema: Optional[str] = None
 
 @dataclass
 class RAGSettings:
